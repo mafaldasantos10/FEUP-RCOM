@@ -1,38 +1,4 @@
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <termios.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <string.h>
-#include <signal.h>
-#include <stdlib.h>
-
-#define TRANSMITTER "t"
-#define RECEIVER "r"
-
-#define BAUDRATE B38400
-#define _POSIX_SOURCE 1 /* POSIX compliant source */
-#define FALSE 0
-#define TRUE 1
-#define MAX_BUF 255
-
-/* Frame information*/
-#define FRAME_SIZE 32
-#define FLAG 0x7E
-
-/* SET frame*/
-#define A_S 0X03
-#define C_S 0X03
-#define BCC_S (A_S ^ C_S)
-
-/* UA frame*/
-#define A_UA 0X03
-#define C_UA 0X07
-#define BCC_UA (A_UA ^ C_UA)
-
-#define MAX_RETURN 3
-#define TIMEOUT 3
+#include "ll.h"
 
 //Global variables
 volatile int STOP = FALSE;
@@ -43,43 +9,12 @@ unsigned char A_expected;
 unsigned char C_expected;
 unsigned char BCC_expected;
 
-enum startSt //state machine
-{
-  Start,
-  FlagRecieved,
-  ARecieved,
-  CRecieved,
-  BCCok
-};
-
-enum dataSt //state machine
-{
-  StartData,
-  FlagRecievedData,
-  ARecievedData,
-  CRecievedData,
-  BCCokData,
-  Data,
-  BCC2ok
-};
-
-/* Function prototypes */
-int receiver(int fd);
-int transmitter(int fd);
-enum startSt startUpStateMachine(enum startSt state, unsigned char *buf);
-int llopen(int porta, char *channel);
-int llwrite(int fd, char *buffer, int length);
-void readFrame(int operation, char* data);
-void writeFrame(unsigned char frame[]);
-int bcc2Calculator(char *buffer, int lenght);
-enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *counter);
-
 /* Handling alarm interruption */
 void alarmHandler()
 {
   if (UA_RECEIVED == TRUE)
   {
-    num_return=0;
+    num_return = 0;
     return;
   }
 
@@ -104,14 +39,14 @@ void alarmHandler()
   }
 }
 
-int llopen(int porta, char *channel)
+int llopen(int porta, int channel)
 {
 
-  if (channel[0] == 't')
+  if (channel == TRANSMITTER)
   {
     transmitter(porta);
   }
-  else if (channel[0] == 'r')
+  else if (channel == RECEIVER)
   {
     receiver(porta);
   }
@@ -120,47 +55,50 @@ int llopen(int porta, char *channel)
 
 int llwrite(int fd, char *buffer, int length)
 {
+  // Writes data frame to receiver
   unsigned char frame[FRAME_SIZE];
-  frame[0] = FLAG;
-  frame[1] = A_S;
-  frame[2] = 0;
-  frame[3] = A_S ^ 0;
+  frame[FLAG_INDEX] = FLAG;
+  frame[A_INDEX] = A;
+  frame[C_INDEX] = C_I;
+  frame[BCC_INDEX] = BCC1_I;
 
   for (unsigned int i = 0; i < length; i++)
   {
-    frame[4 + i] = buffer[i];
+    frame[DATA_INDEX + i] = buffer[i];
   }
 
-  frame[length + 4] = bcc2Calculator(buffer, length);
-  frame[length + 5] = FLAG;
+  frame[BCC2_INDEX + length - 1] = bcc2Calculator(buffer, length);
+  frame[FLAG2_I_INDEX + length - 1] = FLAG;
 
+  //byteStuffing(frame, FLAG2_I_INDEX + length);
   writeFrame(frame);
-sleep(2);
 
-  A_expected = A_S;
+  // Reads receiver's acknowledging frame
+  A_expected = A;
   C_expected = 0x085;
-  BCC_expected = A_S ^ 0x085;
+  BCC_expected = A ^ 0x085;
 
   readFrame(0, "");
 }
 
 int llread(int fd, char *buffer)
 {
-  A_expected = A_S;
-  C_expected = 0;
-  BCC_expected = A_S ^ 0;
+  // Reads transmitter's data frame
+  A_expected = A;
+  C_expected = C_I;
+  BCC_expected = A ^ C_I;
   readFrame(1, buffer);
 
+  // Writes acknowledging frame to transmitter
   unsigned char frame[FRAME_SIZE];
-  frame[0] = FLAG;
-  frame[1] = A_UA;
-  frame[2] = 0x85;
-  frame[3] = 0x85^A_UA;
-  frame[4] = FLAG;
+  frame[FLAG_INDEX] = FLAG;
+  frame[A_INDEX] = A_UA;
+  frame[C_INDEX] = 0x85;
+  frame[BCC_INDEX] = 0x85 ^ A_UA;
+  frame[FLAG2_INDEX] = FLAG;
 
   writeFrame(frame);
-  sleep(10);
-
+  sleep(1);
 }
 
 int bcc2Calculator(char *buffer, int lenght)
@@ -174,6 +112,39 @@ int bcc2Calculator(char *buffer, int lenght)
   return bcc2;
 }
 
+void byteStuffing(unsigned char *frame, int length)
+{
+  unsigned char newFrame[MAX_BUF];
+  unsigned int j = 0;
+
+  for (int i = 0; i < length; i++, j++)
+  {
+    if (i < DATA_INDEX || i == length - 1)
+    {
+      newFrame[j] = frame[i];
+      continue;
+    }
+    if (frame[i] == FLAG)
+    {
+      newFrame[j] = ESC;
+      j++;
+      newFrame[j] = FLAG_STUFFING;
+    }
+    else if (frame[i] == ESC)
+    {
+      newFrame[j] = ESC;
+      j++;
+      newFrame[j] = ESC_STUFFING;
+    }
+    else
+    {
+      newFrame[j] = frame[i];
+    }
+  }
+
+  memcpy(frame, newFrame, j);
+}
+
 void setUP(int argc, char **argv, struct termios *oldtio)
 {
   struct termios newtio;
@@ -182,9 +153,11 @@ void setUP(int argc, char **argv, struct termios *oldtio)
   if ((argc < 3) ||
       ((strcmp("/dev/ttyS0", argv[1]) != 0) &&
        (strcmp("/dev/ttyS1", argv[1]) != 0) &&
-       (strcmp("/dev/ttyS2", argv[1]) != 0))) //to use virtual boxes
+       (strcmp("/dev/ttyS2", argv[1]) != 0) &&
+       (strcmp("/dev/ttyS3", argv[1]) != 0)) ||
+      (atoi(argv[2]) != 0 && atoi(argv[2]) != 1))
   {
-    printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
+    printf("Usage:\tnserial SerialPort Channel\n\tex: nserial /dev/ttyS1 0\n\tChannel: 0 - Transmitter\t1 - Receiver\n");
     exit(1);
   }
 
@@ -234,16 +207,17 @@ void setUP(int argc, char **argv, struct termios *oldtio)
   //fflush(stdout);
 }
 
-void readFrame(int operation, char* data)
+void readFrame(int operation, char *data)
 {
   int resR;
   unsigned char buf[MAX_BUF];
+
   //state machine initialization
   enum startSt state;
   state = Start;
   int counter = 0;
 
-  STOP = FALSE; 
+  STOP = FALSE;
 
   while (STOP == FALSE)
   {                          /* loop for input */
@@ -258,7 +232,6 @@ void readFrame(int operation, char* data)
       state = dataStateMachine(state, buf, data, &counter);
     }
   }
-
 }
 
 void writeFrame(unsigned char frame[])
@@ -277,11 +250,12 @@ int main(int argc, char **argv)
 
   setUP(argc, argv, &oldtio);
 
-  llopen(fd, argv[2]);
+  int channel = atoi(argv[2]);
+  llopen(fd, channel);
 
-  if (argv[2][0] == 't')
+  if (channel == TRANSMITTER)
   {
-    char *buffer = "ccccc";
+    char *buffer = "c~c}c";
     llwrite(fd, buffer, 6);
   }
   else
@@ -297,21 +271,21 @@ int main(int argc, char **argv)
 
 int receiver(int fd)
 {
-  
-  /* Receive SET frame */
+
+  /* Receive SET frame from transmitter*/
   A_expected = A_S;
   C_expected = C_S;
   BCC_expected = BCC_S;
 
   readFrame(0, "");
 
-  /* Send UA frame */
+  /* Send UA frame to transmitter*/
   unsigned char frame[FRAME_SIZE];
-  frame[0] = FLAG;
-  frame[1] = A_UA;
-  frame[2] = C_UA;
-  frame[3] = BCC_UA;
-  frame[4] = FLAG;
+  frame[FLAG_INDEX] = FLAG;
+  frame[A_INDEX] = A_UA;
+  frame[C_INDEX] = C_UA;
+  frame[BCC_INDEX] = BCC_UA;
+  frame[FLAG2_INDEX] = FLAG;
 
   writeFrame(frame);
 }
@@ -320,18 +294,18 @@ int transmitter(int fd)
 {
   (void)signal(SIGALRM, alarmHandler);
 
-  /* Send SET frame*/
+  /* Send SET frame to receiver */
   unsigned char frame[FRAME_SIZE];
-  frame[0] = FLAG;
-  frame[1] = A_S;
-  frame[2] = C_S;
-  frame[3] = BCC_S;
-  frame[4] = FLAG;
+  frame[FLAG_INDEX] = FLAG;
+  frame[A_INDEX] = A_S;
+  frame[C_INDEX] = C_S;
+  frame[BCC_INDEX] = BCC_S;
+  frame[FLAG2_INDEX] = FLAG;
   writeFrame(frame);
 
   alarm(TIMEOUT);
 
-  /* Receive UA frame */
+  /* Receive UA frame from receiver */
   A_expected = A_UA;
   C_expected = C_UA;
   BCC_expected = BCC_UA;
@@ -421,74 +395,73 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
   {
 
   case StartData:
-    printf("startDta state: %x \n", *buf);
+    // printf("startDta state: %x \n", *buf);
     if (*buf == FLAG)
     {
       state++;
     }
     else
     {
-      state = Start;
+      state = StartData;
     }
     break;
 
   case FlagRecievedData:
-    printf("flagReceive state \n");
+    // printf("flagReceive state \n");
     if (*buf == A_expected)
     {
       state++;
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecieved;
+      state = FlagRecievedData;
     }
     else
     {
-      state = Start;
+      state = StartData;
     }
     break;
 
   case ARecievedData:
-    printf("AReceive state \n");
+    //printf("AReceive state \n");
     if (*buf == C_expected)
     {
       state++;
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecieved;
+      state = FlagRecievedData;
     }
     else
     {
-      state = Start;
+      state = StartData;
     }
     break;
 
   case CRecievedData:
-    printf("cReceive state \n");
+    // printf("cReceive state \n");
     if (*buf == BCC_expected)
     {
       state++;
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecieved;
+      state = FlagRecievedData;
     }
     else
     {
-      state = Start;
+      state = StartData;
     }
     break;
 
   case BCCokData:
-    printf("bccok state \n");
+    //printf("bccok state \n");
     if (*buf == FLAG)
     {
-      state = Start;
+      state = StartData;
     }
     else
     {
-      printf("bcc state num %d com valor %x \n", *counter, *buf);
       data[*counter] = *buf;
       (*counter)++;
       state++;
@@ -496,7 +469,7 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
     break;
 
   case Data:
-    printf("data state num %d com valor %x \n", *counter, *buf);
+    // printf("data state num %d com valor %x \n", *counter, *buf);
 
     if (*buf == bcc2Calculator(data, *counter))
     {
@@ -504,7 +477,7 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecieved;
+      state = FlagRecievedData;
     }
     else
     {
@@ -515,8 +488,8 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
     break;
 
   case BCC2ok:
+    //printf("bcc2ok state \n");
 
-    printf("bcc2ok state \n");
     if (*buf == FLAG)
     {
       STOP = TRUE;
@@ -526,13 +499,10 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
     {
 
       data[*counter] = bcc2Calculator(data, *counter);
-      //printf("bcc2ok value num %d com valor %x \n", *counter, data[*counter]);
       (*counter)++;
-      //printf("something else state \n");
+
       if (*counter > 0 && *buf != bcc2Calculator(data, *counter))
       {
-
-        //printf("bcc2ok state num %d com valor %x \n", *counter, *buf);
         data[*counter] = *buf;
         (*counter)++;
         state = Data;
