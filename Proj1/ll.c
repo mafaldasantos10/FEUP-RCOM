@@ -54,6 +54,7 @@ int llopen(int porta, int channel)
 
 int llwrite(int fd, char *buffer, int length)
 {
+  do{
   // Writes data frame to receiver
   unsigned char frame[FRAME_SIZE];
   frame[FLAG_INDEX] = FLAG;
@@ -76,11 +77,10 @@ int llwrite(int fd, char *buffer, int length)
   A_expected = A;
   C_expected = C_RR | (((sequenceNumber + 1) % 2) << 7);
   BCC_expected = A ^ C_expected;
+  
+  }while(readFrame(0, "") != 0);
 
-  if (readFrame(0, "") == 0)
-  {
-    sequenceNumber = (sequenceNumber + 1) % 2;
-  }
+  sequenceNumber = (sequenceNumber + 1) % 2;
 }
 
 int llread(int fd, char *buffer)
@@ -369,7 +369,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     {
       state++;
     }
-    else if (*buf == FLAG)
+    else if (*buf == FLAG || *buf == (C_REJ | (((sequenceNumber + 1) % 2) << 7)))
     {
       STOP = TRUE;
     }
