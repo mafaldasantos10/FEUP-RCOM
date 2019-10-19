@@ -117,7 +117,7 @@ int transmitter();
 int llwrite(int fd, char *buffer, int length);
 int llread(int fd, char *buffer);
 int llclose(int fd);
-int readFrame(int operation, char *data);
+int readFrame(int operation, char *data, int * counter);
 void writeFrame(unsigned char frame[]);
 int bcc2Calculator(unsigned char *buffer, int lenght);
 void byteStuffing(unsigned char *frame, int length);

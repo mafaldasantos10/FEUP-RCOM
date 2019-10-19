@@ -4,6 +4,7 @@
 volatile int STOP = FALSE;
 volatile int SET_ON = FALSE;
 volatile int UA_RECEIVED = FALSE;
+volatile int DUPLICATE = FALSE;
 volatile int fileDescriptor = 0;
 volatile int num_return = 1;
 unsigned char A_expected;
@@ -118,7 +119,7 @@ int receiver()
   C_expected = C_S;
   BCC_expected = BCC_S;
 
-  readFrame(0, "");
+  readFrame(0, "", 0);
 
   /* Send UA frame to transmitter*/
   unsigned char frame[FRAME_SIZE];
@@ -150,7 +151,7 @@ int transmitter()
   A_expected = A_UA;
   C_expected = C_UA;
   BCC_expected = BCC_UA;
-  readFrame(0, ""); //TODO verificar o return? Suposto fazer para todos?
+  readFrame(0, "", 0); //TODO verificar o return? Suposto fazer para todos?
 
   alarm(0);
 }
@@ -187,7 +188,7 @@ int llwrite(int fd, char *buffer, int length)
     printf("A %x\n", A_expected);
     printf("C %x\n", C_expected);
     printf("BCC %x\n", BCC_expected);
-    what = readFrame(0, "");
+    what = readFrame(0, "", 0);
     printf("What? %x\n", what);
   } while (what != 0);
 
@@ -197,6 +198,7 @@ int llwrite(int fd, char *buffer, int length)
 int llread(int fd, char *buffer)
 {
   fileDescriptor = fd;
+  int length = 0;
   // Reads transmitter's data frame
   A_expected = A;
   C_expected = C_I | (sequenceNumber << 6);
@@ -205,7 +207,7 @@ int llread(int fd, char *buffer)
   unsigned char frame[FRAME_SIZE];
   sequenceNumber = (sequenceNumber + 1) % 2;
 
-  if (readFrame(1, buffer) == 0)
+  if (readFrame(1, buffer, &length) == 0)
   {
     if (SET_ON == TRUE)
     {
@@ -215,6 +217,7 @@ int llread(int fd, char *buffer)
       frame[C_INDEX] = C_UA;
       frame[BCC_INDEX] = BCC_UA;
       frame[FLAG2_INDEX] = FLAG;
+      length = -1;
     }
     else
     {
@@ -224,22 +227,30 @@ int llread(int fd, char *buffer)
       frame[C_INDEX] = C_RR | (sequenceNumber << 7);
       frame[BCC_INDEX] = A_UA ^ frame[C_INDEX];
       frame[FLAG2_INDEX] = FLAG;
+
+      if(DUPLICATE == TRUE){
+        length = -1;
+      }
     }
   }
   else
   {
-    // Writes acknowledging frame to transmitter
+    // Writes rejected acknowledging frame to transmitter
     frame[FLAG_INDEX] = FLAG;
     frame[A_INDEX] = A_UA;
     frame[C_INDEX] = C_REJ | (sequenceNumber << 7);
     frame[BCC_INDEX] = A_UA ^ frame[C_INDEX];
     frame[FLAG2_INDEX] = FLAG;
+
+    length = -1;
   }
 
   printf("%x C \n", frame[C_INDEX]);
   printf("%x BCC\n", frame[BCC_INDEX]);
   writeFrame(frame);
   sleep(1);
+
+  return length;
 }
 
 int llclose(int fd)
@@ -294,15 +305,16 @@ void byteStuffing(unsigned char *frame, int length)
   memcpy(frame, newFrame, j);
 }
 
-int readFrame(int operation, char *data)
+int readFrame(int operation, char *data, int *counter)
 {
   int resR;
+  int max_buf = 0;
   unsigned char buf[MAX_BUF];
 
   //state machine initialization
   enum startSt state;
   state = Start;
-  int counter = 0, max_buf = 0;
+  *counter = 0;
 
   STOP = FALSE;
 
@@ -318,11 +330,11 @@ int readFrame(int operation, char *data)
     }
     else
     {
-      state = dataStateMachine(state, buf, data, &counter);
+      state = dataStateMachine(state, buf, data, counter);
     }
   }
 
-  if (SET_ON == TRUE || (state == BCCok && operation == 0) || (state == BCC2ok && operation == 1))
+  if (SET_ON == TRUE || DUPLICATE == TRUE || (state == BCCok && operation == 0) || (state == BCC2ok && operation == 1))
   {
     printf("Here 0 \n");
     return 0;
@@ -467,6 +479,9 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     else if (*buf == C_S)
     {
       SET_ON = TRUE;
+      STOP = TRUE;
+    }else if (*buf == (C_I | ((sequenceNumber + 1) % 2) << 6)){
+      DUPLICATE = TRUE;
       STOP = TRUE;
     }
     else
