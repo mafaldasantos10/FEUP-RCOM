@@ -43,19 +43,19 @@ void alarmHandler()
   }
 }
 
-int llopen(int porta, int channel)
+int llopen(int porta, int status)
 {
   setUP(porta);
 
-  if (channel == TRANSMITTER)
+  if (status == TRANSMITTER)
   {
-    transmitter(porta);
+    transmitter();
   }
-  else if (channel == RECEIVER)
+  else if (status == RECEIVER)
   {
-    receiver(porta);
+    receiver();
   }
-  
+
   return fileDescriptor;
 }
 
@@ -115,6 +115,7 @@ void setUP(int porta)
 
 int llwrite(int fd, char *buffer, int length)
 {
+  fileDescriptor = fd;
   int what;
   do
   {
@@ -153,6 +154,7 @@ int llwrite(int fd, char *buffer, int length)
 
 int llread(int fd, char *buffer)
 {
+  fileDescriptor = fd;
   // Reads transmitter's data frame
   A_expected = A;
   C_expected = C_I | (sequenceNumber << 6);
@@ -264,7 +266,7 @@ int readFrame(int operation, char *data)
 
   while (STOP == FALSE && max_buf != MAX_BUF)
   {                          /* loop for input */
-    resR = read(fd, buf, 1); /* returns after 1 char has been input */
+    resR = read(fileDescriptor, buf, 1); /* returns after 1 char has been input */
     //printf("\n buffer %x \n", buf[0]);
     max_buf++;
     printf("Max_buf = %d\n", max_buf);
@@ -293,11 +295,11 @@ int readFrame(int operation, char *data)
 
 void writeFrame(unsigned char frame[])
 {
-  int resW = write(fd, frame, FRAME_SIZE);
+  int resW = write(fileDescriptor, frame, FRAME_SIZE);
   printf("Sent frame with %x bytes.\n", resW);
 }
 
-int receiver(int fd)
+int receiver()
 {
 
   /* Receive SET frame from transmitter*/
@@ -318,7 +320,7 @@ int receiver(int fd)
   writeFrame(frame);
 }
 
-int transmitter(int fd)
+int transmitter()
 {
   (void)signal(SIGALRM, alarmHandler);
 

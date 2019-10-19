@@ -108,8 +108,8 @@ struct linkLayer
 };
 
 /* Function prototypes */
-int receiver(int fd);
-int transmitter(int fd);
+int receiver();
+int transmitter();
 enum startSt startUpStateMachine(enum startSt state, unsigned char *buf);
 int llopen(int porta, int channel);
 int llwrite(int fd, char *buffer, int length);
