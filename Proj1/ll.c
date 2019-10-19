@@ -71,13 +71,17 @@ int llwrite(int fd, char *buffer, int length)
 
   byteStuffing(frame, FLAG2_I_INDEX + length);
   writeFrame(frame);
-  sequenceNumber = (sequenceNumber + 1) % 2;
+  
   // Reads receiver's acknowledging frame
   A_expected = A;
-  C_expected = C_RR | (sequenceNumber << 7);
+  C_expected = C_RR | (((sequenceNumber + 1) % 2) << 7);
   BCC_expected = A ^ C_expected;
 
-  readFrame(0, "");
+  if(readFrame(0, "") == 0)
+  {
+      sequenceNumber = (sequenceNumber + 1) % 2;
+  }
+
 }
 
 int llread(int fd, char *buffer)
@@ -209,7 +213,7 @@ void setUP(int argc, char **argv, struct termios *oldtio)
   //fflush(stdout);
 }
 
-void readFrame(int operation, char *data)
+int readFrame(int operation, char *data)
 {
   int resR;
   unsigned char buf[MAX_BUF];
@@ -234,6 +238,16 @@ void readFrame(int operation, char *data)
       state = dataStateMachine(state, buf, data, &counter);
     }
   }
+
+  if(state == BCCok || state == BCC2ok)
+  {
+    return 0;
+  }
+  else
+  {
+    return 1;
+  }
+  
 }
 
 void writeFrame(unsigned char frame[])
@@ -334,7 +348,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecieved;
+      STOP = true;
     }
     else
     {

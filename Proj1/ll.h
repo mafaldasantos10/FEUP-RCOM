@@ -105,7 +105,7 @@ int transmitter(int fd);
 enum startSt startUpStateMachine(enum startSt state, unsigned char *buf);
 int llopen(int porta, int channel);
 int llwrite(int fd, char *buffer, int length);
-void readFrame(int operation, char *data);
+int readFrame(int operation, char *data);
 void writeFrame(unsigned char frame[]);
 int bcc2Calculator(char *buffer, int lenght);
 enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *counter);
