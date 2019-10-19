@@ -71,17 +71,16 @@ int llwrite(int fd, char *buffer, int length)
 
   byteStuffing(frame, FLAG2_I_INDEX + length);
   writeFrame(frame);
-  
+
   // Reads receiver's acknowledging frame
   A_expected = A;
   C_expected = C_RR | (((sequenceNumber + 1) % 2) << 7);
   BCC_expected = A ^ C_expected;
 
-  if(readFrame(0, "") == 0)
+  if (readFrame(0, "") == 0)
   {
-      sequenceNumber = (sequenceNumber + 1) % 2;
+    sequenceNumber = (sequenceNumber + 1) % 2;
   }
-
 }
 
 int llread(int fd, char *buffer)
@@ -90,17 +89,27 @@ int llread(int fd, char *buffer)
   A_expected = A;
   C_expected = C_I | (sequenceNumber << 6);
   BCC_expected = A ^ C_expected;
-  readFrame(1, buffer);
 
+  unsigned char frame[FRAME_SIZE];
   sequenceNumber = (sequenceNumber + 1) % 2;
 
-  // Writes acknowledging frame to transmitter
-  unsigned char frame[FRAME_SIZE];
-  frame[FLAG_INDEX] = FLAG;
-  frame[A_INDEX] = A_UA;
-  frame[C_INDEX] = C_RR | (sequenceNumber << 7);
-  frame[BCC_INDEX] = A_UA ^ frame[C_INDEX];
-  frame[FLAG2_INDEX] = FLAG;
+  if (readFrame(1, buffer) == 0)
+  {
+    // Writes acknowledging frame to transmitter
+    frame[FLAG_INDEX] = FLAG;
+    frame[A_INDEX] = A_UA;
+    frame[C_INDEX] = C_RR | (sequenceNumber << 7);
+    frame[BCC_INDEX] = A_UA ^ frame[C_INDEX];
+    frame[FLAG2_INDEX] = FLAG;
+  }else{
+    // Writes acknowledging frame to transmitter
+    frame[FLAG_INDEX] = FLAG;
+    frame[A_INDEX] = A_UA;
+    frame[C_INDEX] = C_REJ | (sequenceNumber << 7);
+    frame[BCC_INDEX] = A_UA ^ frame[C_INDEX];
+    frame[FLAG2_INDEX] = FLAG;
+  }
+
   printf("%x C \n", frame[C_INDEX]);
   printf("%x BCC\n", frame[BCC_INDEX]);
   writeFrame(frame);
@@ -239,7 +248,7 @@ int readFrame(int operation, char *data)
     }
   }
 
-  if(state == BCCok || state == BCC2ok)
+  if (state == BCCok || state == BCC2ok)
   {
     return 0;
   }
@@ -247,7 +256,6 @@ int readFrame(int operation, char *data)
   {
     return 1;
   }
-  
 }
 
 void writeFrame(unsigned char frame[])
@@ -348,7 +356,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     }
     else if (*buf == FLAG)
     {
-      STOP = true;
+      STOP = TRUE;
     }
     else
     {
@@ -363,7 +371,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecieved;
+      STOP = TRUE;
     }
     else
     {
@@ -378,7 +386,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecieved;
+      STOP = TRUE;
     }
     else
     {
@@ -427,7 +435,7 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecievedData;
+      STOP = TRUE;
     }
     else
     {
@@ -443,7 +451,7 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecievedData;
+     STOP = TRUE;
     }
     else
     {
@@ -459,7 +467,7 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecievedData;
+      STOP = TRUE;
     }
     else
     {
@@ -471,7 +479,7 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
     //printf("bccok state \n");
     if (*buf == FLAG)
     {
-      state = StartData;
+      STOP = TRUE;
     }
     else
     {
@@ -490,7 +498,7 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
     }
     else if (*buf == FLAG)
     {
-      state = FlagRecievedData;
+      STOP = TRUE;
     }
     else if (*buf == ESC)
     {
