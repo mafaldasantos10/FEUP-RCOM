@@ -11,8 +11,6 @@ unsigned char C_expected;
 unsigned char BCC_expected;
 int sequenceNumber = 0;
 
-struct linkLayer linkStruct;
-
 /* Handling alarm interruption */
 void alarmHandler()
 {
@@ -152,7 +150,9 @@ int transmitter()
   A_expected = A_UA;
   C_expected = C_UA;
   BCC_expected = BCC_UA;
-  readFrame(0, "");
+  readFrame(0, ""); //TODO verificar o return? Suposto fazer para todos?
+
+  alarm(0);
 }
 
 int llwrite(int fd, char *buffer, int length)
@@ -309,9 +309,9 @@ int readFrame(int operation, char *data)
   while (STOP == FALSE && max_buf != MAX_BUF)
   {                                      /* loop for input */
     resR = read(fileDescriptor, buf, 1); /* returns after 1 char has been input */
-    //printf("\n buffer %x \n", buf[0]);
     max_buf++;
-    printf("Max_buf = %d\n", max_buf);
+    //printf("Max_buf = %d\n", max_buf);
+    
     if (operation == 0)
     {
       state = startUpStateMachine(state, buf);
@@ -322,8 +322,7 @@ int readFrame(int operation, char *data)
     }
   }
 
-  printf("State : %d\n", state);
-  if (state == BCCok || state == BCC2ok || SET_ON == TRUE)
+  if (SET_ON == TRUE || (state == BCCok && operation == 0) || (state == BCC2ok && operation == 1))
   {
     printf("Here 0 \n");
     return 0;

@@ -107,6 +107,8 @@ struct linkLayer
     unsigned char frame[MAX_BUF]; /*Trama*/
 };
 
+struct linkLayer linkStruct;
+
 /* Function prototypes */
 int llopen(int porta, int channel);
 void setUP(int porta);
