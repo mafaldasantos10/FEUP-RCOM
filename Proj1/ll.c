@@ -2,13 +2,17 @@
 
 //Global variables
 volatile int STOP = FALSE;
+volatile int SET_ON = FALSE;
 volatile int UA_RECEIVED = FALSE;
-volatile int fd = 0;
+volatile int fileDescriptor = 0;
 volatile int num_return = 1;
 unsigned char A_expected;
 unsigned char C_expected;
 unsigned char BCC_expected;
 int sequenceNumber = 0;
+
+struct linkLayer linkStruct;
+
 /* Handling alarm interruption */
 void alarmHandler()
 {
@@ -35,12 +39,14 @@ void alarmHandler()
   else
   {
     printf("\nError transmitting frames. Try again!\n");
-    exit(1);
+    exit(-1);
   }
 }
 
 int llopen(int porta, int channel)
 {
+  setUP(porta);
+
   if (channel == TRANSMITTER)
   {
     transmitter(porta);
@@ -49,36 +55,98 @@ int llopen(int porta, int channel)
   {
     receiver(porta);
   }
-  return 0;
+  
+  return fileDescriptor;
+}
+
+void setUP(int porta)
+{
+  struct termios newtio;
+
+  char portaStr[2];
+  sprintf(portaStr, "%d", porta);
+  memcpy(linkStruct.port, "/dev/ttyS", 10);
+  strcat(linkStruct.port, portaStr);
+  printf("port = %s\n", linkStruct.port);
+
+  /*
+  Open serial port device for reading and writing and not as controlling tty
+  because we don't want to get killed if linenoise sends CTRL-C.
+  */
+  fileDescriptor = open(linkStruct.port, O_RDWR | O_NOCTTY);
+  if (fileDescriptor < 0)
+  {
+    perror(linkStruct.port);
+    exit(-1);
+  }
+
+  if (tcgetattr(fileDescriptor, &linkStruct.oldtio) == -1)
+  { /* save current port settings */
+    perror("tcgetattr");
+    exit(-1);
+  }
+
+  bzero(&newtio, sizeof(newtio));
+  newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
+  newtio.c_iflag = IGNPAR;
+  newtio.c_oflag = 0;
+
+  /* set input mode (non-canonical, no echo,...) */
+  newtio.c_lflag = 0;
+
+  newtio.c_cc[VTIME] = 0; /* inter-character timer unused */
+  newtio.c_cc[VMIN] = 1;  /* blocking read until 1 char received */
+
+  /*
+  VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a
+  leitura do(s) pr�ximo(s) caracter(es)
+  */
+
+  tcflush(fileDescriptor, TCIOFLUSH);
+
+  if (tcsetattr(fileDescriptor, TCSANOW, &newtio) == -1)
+  {
+    perror("tcsetattr");
+    exit(-1);
+  }
+
+  printf("New termios structure set\n\n");
 }
 
 int llwrite(int fd, char *buffer, int length)
 {
-  do{
-  // Writes data frame to receiver
-  unsigned char frame[FRAME_SIZE];
-  frame[FLAG_INDEX] = FLAG;
-  frame[A_INDEX] = A;
-  frame[C_INDEX] = C_I | (sequenceNumber << 6);
-  frame[BCC_INDEX] = A ^ frame[C_INDEX];
-
-  for (unsigned int i = 0; i < length; i++)
+  int what;
+  do
   {
-    frame[DATA_INDEX + i] = buffer[i];
-  }
+    printf("Im in a cilce \n");
+    // Writes data frame to receiver
+    unsigned char frame[FRAME_SIZE];
+    frame[FLAG_INDEX] = FLAG;
+    frame[A_INDEX] = A;
+    frame[C_INDEX] = C_I | (sequenceNumber << 6);
+    frame[BCC_INDEX] = A ^ frame[C_INDEX];
 
-  frame[BCC2_INDEX + length - 1] = bcc2Calculator(buffer, length);
-  frame[FLAG2_I_INDEX + length - 1] = FLAG;
+    for (unsigned int i = 0; i < length; i++)
+    {
+      frame[DATA_INDEX + i] = buffer[i];
+    }
 
-  byteStuffing(frame, FLAG2_I_INDEX + length);
-  writeFrame(frame);
+    frame[BCC2_INDEX + length - 1] = bcc2Calculator(buffer, length);
+    frame[FLAG2_I_INDEX + length - 1] = FLAG;
 
-  // Reads receiver's acknowledging frame
-  A_expected = A;
-  C_expected = C_RR | (((sequenceNumber + 1) % 2) << 7);
-  BCC_expected = A ^ C_expected;
-  
-  }while(readFrame(0, "") != 0);
+    byteStuffing(frame, FLAG2_I_INDEX + length);
+    writeFrame(frame);
+
+    // Reads receiver's acknowledging frame
+    A_expected = A;
+    C_expected = C_RR | (((sequenceNumber + 1) % 2) << 7);
+    BCC_expected = A ^ C_expected;
+    printf("A %x\n", A_expected);
+    printf("C %x\n", C_expected);
+    printf("BCC %x\n", BCC_expected);
+    what = readFrame(0, "");
+    printf("What? %x\n", what);
+  } while (what != 0);
 
   sequenceNumber = (sequenceNumber + 1) % 2;
 }
@@ -95,13 +163,27 @@ int llread(int fd, char *buffer)
 
   if (readFrame(1, buffer) == 0)
   {
-    // Writes acknowledging frame to transmitter
-    frame[FLAG_INDEX] = FLAG;
-    frame[A_INDEX] = A_UA;
-    frame[C_INDEX] = C_RR | (sequenceNumber << 7);
-    frame[BCC_INDEX] = A_UA ^ frame[C_INDEX];
-    frame[FLAG2_INDEX] = FLAG;
-  }else{
+    if (SET_ON == TRUE)
+    {
+      /* Send UA frame to transmitter*/
+      frame[FLAG_INDEX] = FLAG;
+      frame[A_INDEX] = A_UA;
+      frame[C_INDEX] = C_UA;
+      frame[BCC_INDEX] = BCC_UA;
+      frame[FLAG2_INDEX] = FLAG;
+    }
+    else
+    {
+      // Writes acknowledging frame to transmitter
+      frame[FLAG_INDEX] = FLAG;
+      frame[A_INDEX] = A_UA;
+      frame[C_INDEX] = C_RR | (sequenceNumber << 7);
+      frame[BCC_INDEX] = A_UA ^ frame[C_INDEX];
+      frame[FLAG2_INDEX] = FLAG;
+    }
+  }
+  else
+  {
     // Writes acknowledging frame to transmitter
     frame[FLAG_INDEX] = FLAG;
     frame[A_INDEX] = A_UA;
@@ -114,6 +196,14 @@ int llread(int fd, char *buffer)
   printf("%x BCC\n", frame[BCC_INDEX]);
   writeFrame(frame);
   sleep(1);
+}
+
+int llclose(int fd)
+{
+  tcsetattr(fd, TCSANOW, &linkStruct.oldtio);
+  close(fd);
+
+  return 0;
 }
 
 int bcc2Calculator(char *buffer, int lenght)
@@ -160,68 +250,6 @@ void byteStuffing(unsigned char *frame, int length)
   memcpy(frame, newFrame, j);
 }
 
-void setUP(int argc, char **argv, struct termios *oldtio)
-{
-  struct termios newtio;
-  fflush(stdout);
-
-  if ((argc < 3) ||
-      ((strcmp("/dev/ttyS0", argv[1]) != 0) &&
-       (strcmp("/dev/ttyS1", argv[1]) != 0) &&
-       (strcmp("/dev/ttyS2", argv[1]) != 0) &&
-       (strcmp("/dev/ttyS3", argv[1]) != 0)) ||
-      (atoi(argv[2]) != 0 && atoi(argv[2]) != 1))
-  {
-    printf("Usage:\tnserial SerialPort Channel\n\tex: nserial /dev/ttyS1 0\n\tChannel: 0 - Transmitter\t1 - Receiver\n");
-    exit(1);
-  }
-
-  /*
-  Open serial port device for reading and writing and not as controlling tty
-  because we don't want to get killed if linenoise sends CTRL-C.
-  */
-
-  fd = open(argv[1], O_RDWR | O_NOCTTY);
-  if (fd < 0)
-  {
-    perror(argv[1]);
-    exit(-1);
-  }
-
-  if (tcgetattr(fd, oldtio) == -1)
-  { /* save current port settings */
-    perror("tcgetattr");
-    exit(-1);
-  }
-
-  bzero(&newtio, sizeof(newtio));
-  newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
-  newtio.c_iflag = IGNPAR;
-  newtio.c_oflag = 0;
-
-  /* set input mode (non-canonical, no echo,...) */
-  newtio.c_lflag = 0;
-
-  newtio.c_cc[VTIME] = 0; /* inter-character timer unused */
-  newtio.c_cc[VMIN] = 1;  /* blocking read until 1 char received */
-
-  /*
-  VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a
-  leitura do(s) pr�ximo(s) caracter(es)
-  */
-
-  tcflush(fd, TCIOFLUSH);
-
-  if (tcsetattr(fd, TCSANOW, &newtio) == -1)
-  {
-    perror("tcsetattr");
-    exit(-1);
-  }
-
-  printf("New termios structure set\n\n");
-  //fflush(stdout);
-}
-
 int readFrame(int operation, char *data)
 {
   int resR;
@@ -230,14 +258,16 @@ int readFrame(int operation, char *data)
   //state machine initialization
   enum startSt state;
   state = Start;
-  int counter = 0;
+  int counter = 0, max_buf = 0;
 
   STOP = FALSE;
 
-  while (STOP == FALSE)
+  while (STOP == FALSE && max_buf != MAX_BUF)
   {                          /* loop for input */
     resR = read(fd, buf, 1); /* returns after 1 char has been input */
     //printf("\n buffer %x \n", buf[0]);
+    max_buf++;
+    printf("Max_buf = %d\n", max_buf);
     if (operation == 0)
     {
       state = startUpStateMachine(state, buf);
@@ -248,12 +278,15 @@ int readFrame(int operation, char *data)
     }
   }
 
-  if (state == BCCok || state == BCC2ok)
+  printf("State : %d\n", state);
+  if (state == BCCok || state == BCC2ok || SET_ON == TRUE)
   {
+    printf("Here 0 \n");
     return 0;
   }
   else
   {
+    printf("Here 1 \n");
     return 1;
   }
 }
@@ -262,32 +295,6 @@ void writeFrame(unsigned char frame[])
 {
   int resW = write(fd, frame, FRAME_SIZE);
   printf("Sent frame with %x bytes.\n", resW);
-}
-
-int main(int argc, char **argv)
-{
-  char buff[MAX_BUF];
-  struct termios oldtio;
-
-  setUP(argc, argv, &oldtio);
-
-  int channel = atoi(argv[2]);
-  llopen(fd, channel);
-
-  if (channel == TRANSMITTER)
-  {
-    char *buffer = "c~c}c";
-    llwrite(fd, buffer, 6);
-  }
-  else
-  {
-    llread(fd, buff);
-    printf("buff %s \n", buff);
-  }
-
-  tcsetattr(fd, TCSANOW, &oldtio);
-  close(fd);
-  return 0;
 }
 
 int receiver(int fd)
@@ -339,6 +346,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
   {
 
   case Start:
+    //printf("Started\n");
     if (*buf == FLAG)
     {
       state++;
@@ -350,6 +358,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case FlagRecieved:
+    printf("FlagRecieved\n");
     if (*buf == A_expected)
     {
       state++;
@@ -365,6 +374,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case ARecieved:
+    printf("ARecieved\n");
     if (*buf == C_expected)
     {
       state++;
@@ -380,6 +390,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case CRecieved:
+    printf("CRecieved\n");
     if (*buf == BCC_expected)
     {
       state++;
@@ -395,9 +406,9 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case BCCok:
+    printf("BCCok\n");
     if (*buf == FLAG)
     {
-      state++;
       STOP = TRUE;
       printf("Received valid SET frame.\n");
     }
@@ -451,7 +462,12 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
     }
     else if (*buf == FLAG)
     {
-     STOP = TRUE;
+      STOP = TRUE;
+    }
+    else if (*buf == C_S)
+    {
+      SET_ON = TRUE;
+      STOP = TRUE;
     }
     else
     {
