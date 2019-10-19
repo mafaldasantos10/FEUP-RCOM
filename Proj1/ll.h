@@ -101,25 +101,25 @@ enum dataSt
 
 struct linkLayer
 {
-    char port[20];                  /*Dispositivo /dev/ttySx, x = 0, 1*/
+    char port[20]; /*Dispositivo /dev/ttySx, x = 0, 1*/
     struct termios oldtio;
-    unsigned int sequenceNumber;    /*Número de sequência da trama: 0, 1*/
-    unsigned char frame[MAX_BUF];   /*Trama*/
+    unsigned int sequenceNumber;  /*Número de sequência da trama: 0, 1*/
+    unsigned char frame[MAX_BUF]; /*Trama*/
 };
 
 /* Function prototypes */
+int llopen(int porta, int channel);
+void setUP(int porta);
 int receiver();
 int transmitter();
-enum startSt startUpStateMachine(enum startSt state, unsigned char *buf);
-int llopen(int porta, int channel);
 int llwrite(int fd, char *buffer, int length);
 int llread(int fd, char *buffer);
 int llclose(int fd);
 int readFrame(int operation, char *data);
 void writeFrame(unsigned char frame[]);
-int bcc2Calculator(char *buffer, int lenght);
-enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *counter);
+int bcc2Calculator(unsigned char *buffer, int lenght);
 void byteStuffing(unsigned char *frame, int length);
-void setUP(int porta);
+enum startSt startUpStateMachine(enum startSt state, unsigned char *buf);
+enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned char *data, int *counter);
 
 #endif /* LINK_LAYER_H */

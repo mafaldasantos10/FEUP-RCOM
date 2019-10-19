@@ -67,7 +67,6 @@ void setUP(int porta)
   sprintf(portaStr, "%d", porta);
   memcpy(linkStruct.port, "/dev/ttyS", 10);
   strcat(linkStruct.port, portaStr);
-  printf("port = %s\n", linkStruct.port);
 
   /*
   Open serial port device for reading and writing and not as controlling tty
@@ -111,6 +110,49 @@ void setUP(int porta)
   }
 
   printf("New termios structure set\n\n");
+}
+
+int receiver()
+{
+
+  /* Receive SET frame from transmitter*/
+  A_expected = A_S;
+  C_expected = C_S;
+  BCC_expected = BCC_S;
+
+  readFrame(0, "");
+
+  /* Send UA frame to transmitter*/
+  unsigned char frame[FRAME_SIZE];
+  frame[FLAG_INDEX] = FLAG;
+  frame[A_INDEX] = A_UA;
+  frame[C_INDEX] = C_UA;
+  frame[BCC_INDEX] = BCC_UA;
+  frame[FLAG2_INDEX] = FLAG;
+
+  writeFrame(frame);
+}
+
+int transmitter()
+{
+  (void)signal(SIGALRM, alarmHandler);
+
+  /* Send SET frame to receiver */
+  unsigned char frame[FRAME_SIZE];
+  frame[FLAG_INDEX] = FLAG;
+  frame[A_INDEX] = A_S;
+  frame[C_INDEX] = C_S;
+  frame[BCC_INDEX] = BCC_S;
+  frame[FLAG2_INDEX] = FLAG;
+  writeFrame(frame);
+
+  alarm(TIMEOUT);
+
+  /* Receive UA frame from receiver */
+  A_expected = A_UA;
+  C_expected = C_UA;
+  BCC_expected = BCC_UA;
+  readFrame(0, "");
 }
 
 int llwrite(int fd, char *buffer, int length)
@@ -208,7 +250,7 @@ int llclose(int fd)
   return 0;
 }
 
-int bcc2Calculator(char *buffer, int lenght)
+int bcc2Calculator(unsigned char *buffer, int lenght)
 {
   int bcc2 = buffer[0];
   for (unsigned int i = 1; i < lenght; i++)
@@ -265,7 +307,7 @@ int readFrame(int operation, char *data)
   STOP = FALSE;
 
   while (STOP == FALSE && max_buf != MAX_BUF)
-  {                          /* loop for input */
+  {                                      /* loop for input */
     resR = read(fileDescriptor, buf, 1); /* returns after 1 char has been input */
     //printf("\n buffer %x \n", buf[0]);
     max_buf++;
@@ -297,49 +339,6 @@ void writeFrame(unsigned char frame[])
 {
   int resW = write(fileDescriptor, frame, FRAME_SIZE);
   printf("Sent frame with %x bytes.\n", resW);
-}
-
-int receiver()
-{
-
-  /* Receive SET frame from transmitter*/
-  A_expected = A_S;
-  C_expected = C_S;
-  BCC_expected = BCC_S;
-
-  readFrame(0, "");
-
-  /* Send UA frame to transmitter*/
-  unsigned char frame[FRAME_SIZE];
-  frame[FLAG_INDEX] = FLAG;
-  frame[A_INDEX] = A_UA;
-  frame[C_INDEX] = C_UA;
-  frame[BCC_INDEX] = BCC_UA;
-  frame[FLAG2_INDEX] = FLAG;
-
-  writeFrame(frame);
-}
-
-int transmitter()
-{
-  (void)signal(SIGALRM, alarmHandler);
-
-  /* Send SET frame to receiver */
-  unsigned char frame[FRAME_SIZE];
-  frame[FLAG_INDEX] = FLAG;
-  frame[A_INDEX] = A_S;
-  frame[C_INDEX] = C_S;
-  frame[BCC_INDEX] = BCC_S;
-  frame[FLAG2_INDEX] = FLAG;
-  writeFrame(frame);
-
-  alarm(TIMEOUT);
-
-  /* Receive UA frame from receiver */
-  A_expected = A_UA;
-  C_expected = C_UA;
-  BCC_expected = BCC_UA;
-  readFrame(0, "");
 }
 
 enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
@@ -423,7 +422,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
   return state;
 }
 
-enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *counter)
+enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned char *data, int *counter)
 {
   switch (state)
   {

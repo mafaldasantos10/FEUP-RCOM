@@ -15,7 +15,7 @@ void checkArguments(int argc, char **argv)
          (strcmp("/dev/ttyS1", argv[1]) != 0) &&
          (strcmp("/dev/ttyS2", argv[1]) != 0) &&
          (strcmp("/dev/ttyS3", argv[1]) != 0)) ||
-        ((strcmp("0", argv[2]) != 0) && 
+        ((strcmp("0", argv[2]) != 0) &&
          (strcmp("1", argv[2]) != 0)))
     {
         printf("Usage:\tnserial SerialPort State\n\tex: nserial /dev/ttyS1 0\n\tState: 0 - Transmitter\t1 - Receiver\n");
@@ -33,7 +33,8 @@ int main(int argc, char **argv)
     int port = (int)argv[1][9] - 48;
     appLayer.fileDescriptor = llopen(port, appLayer.status);
 
-    if (appLayer.fileDescriptor < 0){
+    if (appLayer.fileDescriptor < 0)
+    {
         printf("There was an error starting the tranference in llopen.\n");
         exit(-1);
     }
