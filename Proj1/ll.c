@@ -8,7 +8,7 @@ volatile int num_return = 1;
 unsigned char A_expected;
 unsigned char C_expected;
 unsigned char BCC_expected;
-
+int sequenceNumber = 0;
 /* Handling alarm interruption */
 void alarmHandler()
 {
@@ -41,7 +41,6 @@ void alarmHandler()
 
 int llopen(int porta, int channel)
 {
-
   if (channel == TRANSMITTER)
   {
     transmitter(porta);
@@ -59,8 +58,8 @@ int llwrite(int fd, char *buffer, int length)
   unsigned char frame[FRAME_SIZE];
   frame[FLAG_INDEX] = FLAG;
   frame[A_INDEX] = A;
-  frame[C_INDEX] = C_I;
-  frame[BCC_INDEX] = BCC1_I;
+  frame[C_INDEX] = C_I | (sequenceNumber << 6);
+  frame[BCC_INDEX] = A ^ frame[C_INDEX];
 
   for (unsigned int i = 0; i < length; i++)
   {
@@ -70,13 +69,13 @@ int llwrite(int fd, char *buffer, int length)
   frame[BCC2_INDEX + length - 1] = bcc2Calculator(buffer, length);
   frame[FLAG2_I_INDEX + length - 1] = FLAG;
 
-  //byteStuffing(frame, FLAG2_I_INDEX + length);
+  byteStuffing(frame, FLAG2_I_INDEX + length);
   writeFrame(frame);
-
+  sequenceNumber = (sequenceNumber + 1) % 2;
   // Reads receiver's acknowledging frame
   A_expected = A;
-  C_expected = 0x085;
-  BCC_expected = A ^ 0x085;
+  C_expected = C_RR | (sequenceNumber << 7);
+  BCC_expected = A ^ C_expected;
 
   readFrame(0, "");
 }
@@ -85,18 +84,21 @@ int llread(int fd, char *buffer)
 {
   // Reads transmitter's data frame
   A_expected = A;
-  C_expected = C_I;
-  BCC_expected = A ^ C_I;
+  C_expected = C_I | (sequenceNumber << 6);
+  BCC_expected = A ^ C_expected;
   readFrame(1, buffer);
+
+  sequenceNumber = (sequenceNumber + 1) % 2;
 
   // Writes acknowledging frame to transmitter
   unsigned char frame[FRAME_SIZE];
   frame[FLAG_INDEX] = FLAG;
   frame[A_INDEX] = A_UA;
-  frame[C_INDEX] = 0x85;
-  frame[BCC_INDEX] = 0x85 ^ A_UA;
+  frame[C_INDEX] = C_RR | (sequenceNumber << 7);
+  frame[BCC_INDEX] = A_UA ^ frame[C_INDEX];
   frame[FLAG2_INDEX] = FLAG;
-
+  printf("%x C \n", frame[C_INDEX]);
+  printf("%x BCC\n", frame[BCC_INDEX]);
   writeFrame(frame);
   sleep(1);
 }
@@ -244,9 +246,6 @@ int main(int argc, char **argv)
 {
   char buff[MAX_BUF];
   struct termios oldtio;
-
-  fflush(stdin);
-  fflush(stdout);
 
   setUP(argc, argv, &oldtio);
 
@@ -473,11 +472,16 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
 
     if (*buf == bcc2Calculator(data, *counter))
     {
-      state++;
+      state = BCC2ok;
     }
     else if (*buf == FLAG)
     {
       state = FlagRecievedData;
+    }
+    else if (*buf == ESC)
+    {
+      //printf("data recebe esc");
+      state++;
     }
     else
     {
@@ -487,8 +491,45 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
 
     break;
 
+  case DestuffingData:
+    //printf("destuffing \n");
+    if (*buf == FLAG_STUFFING)
+    {
+      //printf("== flag stuffing \n");
+      if (FLAG == bcc2Calculator(data, *counter))
+      {
+        //printf("para o bcc2 \n");
+        state = BCC2ok;
+      }
+      else
+      {
+        //printf("= flag para a data");
+        data[*counter] = FLAG;
+        (*counter)++;
+        state = Data;
+      }
+    }
+    else if (*buf == ESC_STUFFING)
+    {
+      //printf("== esc stuffing \n");
+      if (ESC == bcc2Calculator(data, *counter))
+      {
+        //printf("para o bcc2 \n");
+        state = BCC2ok;
+      }
+      else
+      {
+        //printf("= esc para a data");
+        data[*counter] = ESC;
+        (*counter)++;
+        state = Data;
+      }
+    }
+    //else erro
+
+    break;
+
   case BCC2ok:
-    //printf("bcc2ok state \n");
 
     if (*buf == FLAG)
     {
@@ -501,7 +542,12 @@ enum dataSt dataStateMachine(enum dataSt state, char *buf, char *data, int *coun
       data[*counter] = bcc2Calculator(data, *counter);
       (*counter)++;
 
-      if (*counter > 0 && *buf != bcc2Calculator(data, *counter))
+      if (*buf == ESC)
+      {
+        state = DestuffingData;
+      }
+
+      if (*buf != bcc2Calculator(data, *counter))
       {
         data[*counter] = *buf;
         (*counter)++;

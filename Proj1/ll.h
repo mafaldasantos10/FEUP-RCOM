@@ -94,6 +94,7 @@ enum dataSt
     CRecievedData,
     BCCokData,
     Data,
+    DestuffingData,
     BCC2ok
 };
 /*  */
