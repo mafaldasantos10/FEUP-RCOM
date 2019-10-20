@@ -43,6 +43,7 @@ void alarmHandler()
 int llopen(int porta, int status)
 {
   linkStruct.sequenceNumber = 0;
+  linkStruct.status = status;
   setUP(porta);
 
   if (status == TRANSMITTER)
@@ -127,7 +128,7 @@ int receiver()
   unsigned char frame[FRAME_SIZE];
   frame[FLAG_INDEX] = FLAG;
   frame[A_INDEX] = A_UA;
-  frame[C_INDEX] = FLAG;
+  frame[C_INDEX] = C_UA;
   frame[BCC_INDEX] = BCC_UA;
   frame[FLAG2_INDEX] = FLAG;
 
@@ -280,7 +281,6 @@ int llread(int fd, char *buffer)
   printf("%x C \n", frame[C_INDEX]);
   printf("%x BCC\n", frame[BCC_INDEX]);
   writeFrame(frame);
-  sleep(1);
 
   printf("Sai no llread\n");
   return length;
@@ -288,10 +288,110 @@ int llread(int fd, char *buffer)
 
 int llclose(int fd)
 {
+
+  if (linkStruct.status == TRANSMITTER)
+  {
+    transmitterClose();
+  }
+  else if (linkStruct.status == RECEIVER)
+  {
+    receiverClose();
+  }
+
   tcsetattr(fd, TCSANOW, &linkStruct.oldtio);
   close(fd);
 
   return 0;
+}
+
+int receiverClose()
+{
+  printf("close recie. \n");
+  int count_ignore = 0;
+  /* Receive SET frame from transmitter*/
+  A_expected = A;
+  C_expected = C_DISC;
+  BCC_expected = BCC_DISC;
+
+  while (readFrame(0, "", &count_ignore) != 0)
+  {
+  }
+  printf("leu o disc. \n");
+
+  /* Send UA frame to transmitter*/
+  unsigned char frame[FRAME_SIZE];
+  frame[FLAG_INDEX] = FLAG;
+  frame[A_INDEX] = A;
+  frame[C_INDEX] = C_DISC;
+  frame[BCC_INDEX] = BCC_DISC;
+  frame[FLAG2_INDEX] = FLAG;
+
+  writeFrame(frame);
+  printf("write ua\n");
+
+  /* Receive SET frame from transmitter*/
+  A_expected = A;
+  C_expected = C_UA;
+  BCC_expected = BCC_UA;
+
+  if (readFrame(0, "", &count_ignore) == 0)
+  {
+    return 0;
+  }
+  else
+  {
+    return -1;
+  }
+  printf("leu o ua. \n");
+  printf("Sai no receiver close\n");
+}
+
+int transmitterClose()
+{
+  printf("close transm. \n");
+  FRAME_RECEIVED = FALSE;
+  flag = 1;
+
+  while (FRAME_RECEIVED == FALSE)
+  {
+    if (flag == 1)
+    {
+      int count_ignore = 0;
+
+      /* Send SET frame to receiver */
+      linkStruct.frame[FLAG_INDEX] = FLAG;
+      linkStruct.frame[A_INDEX] = A;
+      linkStruct.frame[C_INDEX] = C_DISC;
+      linkStruct.frame[BCC_INDEX] = BCC_DISC;
+      linkStruct.frame[FLAG2_INDEX] = FLAG;
+      writeFrame(linkStruct.frame);
+      printf("first disc sent. \n");
+      alarm(TIMEOUT);
+      printf("num_ret = %x\n", num_return);
+
+      /* Receive UA frame from receiver */
+      A_expected = A;
+      C_expected = C_DISC;
+      BCC_expected = BCC_DISC;
+
+      readFrame(0, "", &count_ignore);
+      printf("read disc. \n");
+      flag = 0;
+    }
+  }
+  alarm(0);
+
+  unsigned char frame[MAX_BUF];
+  frame[FLAG_INDEX] = FLAG;
+  frame[A_INDEX] = A_UA;
+  frame[C_INDEX] = C_UA;
+  frame[BCC_INDEX] = BCC_UA;
+  frame[FLAG2_INDEX] = FLAG;
+  printf("last ua sent. \n");
+  writeFrame(frame);
+  sleep(1);
+
+  return 1;
 }
 
 int bcc2Calculator(unsigned char *buffer, int lenght)
@@ -352,6 +452,7 @@ int readFrame(int operation, char *data, int *counter)
   STOP = FALSE;
   SET_ON = FALSE;
   DUPLICATE = FALSE;
+  FRAME_RECEIVED = FALSE;
 
   while (STOP == FALSE && max_buf != MAX_BUF)
   {                                      /* loop for input */
@@ -368,6 +469,10 @@ int readFrame(int operation, char *data, int *counter)
       state = dataStateMachine(state, buf, data, counter);
     }
   }
+
+  printf("SET = %x", SET_ON);
+  printf("DUPLICATE = %x", DUPLICATE);
+  printf("FRAME_RECEIVED = %x", FRAME_RECEIVED);
 
   if (SET_ON == TRUE || DUPLICATE == TRUE || FRAME_RECEIVED == TRUE)
   {
@@ -463,7 +568,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     {
       STOP = TRUE;
       FRAME_RECEIVED = TRUE;
-      printf("Received valid SET frame.\n");
+      printf("Received valid frame.\n");
     }
     else
     {

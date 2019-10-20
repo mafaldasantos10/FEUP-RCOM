@@ -93,6 +93,7 @@ struct linkLayer
 {
     char port[20]; /*Dispositivo /dev/ttySx, x = 0, 1*/
     struct termios oldtio;
+    int status;     /* TRANSMITTER | RECEIVER */
     unsigned int sequenceNumber;  /*Número de sequência da trama: 0, 1*/
     unsigned char frame[MAX_BUF]; /*Trama*/
 };
@@ -103,6 +104,8 @@ struct linkLayer linkStruct;
 void setUP(int porta);
 int receiver();
 int transmitter();
+int receiverClose();
+int transmitterClose();
 int readFrame(int operation, char *data, int * counter);
 void writeFrame(unsigned char frame[]);
 int bcc2Calculator(unsigned char *buffer, int lenght);

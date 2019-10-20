@@ -26,13 +26,9 @@ int main(int argc, char **argv)
     {
         llread(appLayer.fileDescriptor, buff);
         printf("buff %s \n", buff);
-    sleep(1);
-         llread(appLayer.fileDescriptor, buff);
-        printf("buff %s \n", buff);
-        sleep(1);
-         llread(appLayer.fileDescriptor, buff);
-        printf("buff %s \n", buff);
     }
+
+    llclose(appLayer.fileDescriptor);
 
     return 0;
 }
