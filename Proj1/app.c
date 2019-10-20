@@ -1,28 +1,5 @@
-#include "ll.h"
-
-struct applicationLayer
-{
-    int fileDescriptor; /*Descritor correspondente à porta série*/
-    int status;         /*TRANSMITTER | RECEIVER*/
-};
-
-struct applicationLayer appLayer;
-
-void checkArguments(int argc, char **argv)
-{
-    if ((argc < 3) ||
-        ((strcmp("/dev/ttyS0", argv[1]) != 0) &&
-         (strcmp("/dev/ttyS1", argv[1]) != 0) &&
-         (strcmp("/dev/ttyS2", argv[1]) != 0) &&
-         (strcmp("/dev/ttyS3", argv[1]) != 0)) ||
-        ((strcmp("0", argv[2]) != 0) &&
-         (strcmp("1", argv[2]) != 0)))
-    {
-        printf("Usage:\tnserial SerialPort State\n\tex: nserial /dev/ttyS1 0\n\tState: 0 - Transmitter\t1 - Receiver\n");
-        exit(1);
-    }
-    appLayer.status = atoi(argv[2]);
-}
+#include "app.h"
+#include "ll_app.h"
 
 int main(int argc, char **argv)
 {
@@ -49,7 +26,29 @@ int main(int argc, char **argv)
     {
         llread(appLayer.fileDescriptor, buff);
         printf("buff %s \n", buff);
+    sleep(1);
+         llread(appLayer.fileDescriptor, buff);
+        printf("buff %s \n", buff);
+        sleep(1);
+         llread(appLayer.fileDescriptor, buff);
+        printf("buff %s \n", buff);
     }
 
     return 0;
+}
+
+void checkArguments(int argc, char **argv)
+{
+    if ((argc < 3) ||
+        ((strcmp("/dev/ttyS0", argv[1]) != 0) &&
+         (strcmp("/dev/ttyS1", argv[1]) != 0) &&
+         (strcmp("/dev/ttyS2", argv[1]) != 0) &&
+         (strcmp("/dev/ttyS3", argv[1]) != 0)) ||
+        ((strcmp("0", argv[2]) != 0) &&
+         (strcmp("1", argv[2]) != 0)))
+    {
+        printf("Usage:\tnserial SerialPort State\n\tex: nserial /dev/ttyS1 0\n\tState: 0 - Transmitter\t1 - Receiver\n");
+        exit(1);
+    }
+    appLayer.status = atoi(argv[2]);
 }

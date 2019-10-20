@@ -1,18 +1,8 @@
 #ifndef LINK_LAYER_H
 #define LINK_LAYER_H
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <termios.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <string.h>
-#include <signal.h>
-#include <stdlib.h>
 
-#define TRANSMITTER 0
-#define RECEIVER 1
+#include "ll_app.h"
 
 #define BIT(n) (0x01 << (n))
 
@@ -110,13 +100,9 @@ struct linkLayer
 struct linkLayer linkStruct;
 
 /* Function prototypes */
-int llopen(int porta, int channel);
 void setUP(int porta);
 int receiver();
 int transmitter();
-int llwrite(int fd, char *buffer, int length);
-int llread(int fd, char *buffer);
-int llclose(int fd);
 int readFrame(int operation, char *data, int * counter);
 void writeFrame(unsigned char frame[]);
 int bcc2Calculator(unsigned char *buffer, int lenght);
