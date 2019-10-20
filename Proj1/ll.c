@@ -176,6 +176,7 @@ int llwrite(int fd, char *buffer, int length)
   FRAME_RECEIVED = FALSE;
   fileDescriptor = fd;
   flag = 1;
+
   while (FRAME_RECEIVED == FALSE)
   {
     if (flag == 1)
@@ -219,6 +220,8 @@ int llwrite(int fd, char *buffer, int length)
 
   linkStruct.sequenceNumber = (linkStruct.sequenceNumber + 1) % 2;
   printf("Sai no llwrite\n");
+
+  return length;
 }
 
 int llread(int fd, char *buffer)
