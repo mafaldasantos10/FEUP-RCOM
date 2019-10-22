@@ -125,7 +125,7 @@ int receiver()
   }
 
   /* Send UA frame to transmitter*/
-  unsigned char frame[FRAME_SIZE];
+  unsigned char frame[MAX_BUF];
   frame[FLAG_INDEX] = FLAG;
   frame[A_INDEX] = A_UA;
   frame[C_INDEX] = C_UA;
@@ -202,6 +202,8 @@ int llwrite(int fd, char *buffer, int length)
       linkStruct.frame[FLAG2_I_INDEX + length - 1] = FLAG;
 
       byteStuffing(linkStruct.frame, FLAG2_I_INDEX + length);
+      printf("c frame = %x\n", linkStruct.frame[C_INDEX]);
+      printf("bcc frame = %x\n", linkStruct.frame[BCC_INDEX]);
       writeFrame(linkStruct.frame);
 
       alarm(TIMEOUT);
@@ -235,7 +237,7 @@ int llread(int fd, char *buffer)
   C_expected = C_I | (linkStruct.sequenceNumber << 6);
   BCC_expected = A ^ C_expected;
   printf("sequenceNumber = %x\n", linkStruct.sequenceNumber);
-  unsigned char frame[FRAME_SIZE];
+  unsigned char frame[MAX_BUF];
   if (readFrame(1, buffer, &length) == 0)
   {
     if (SET_ON == TRUE)
@@ -319,7 +321,7 @@ int receiverClose()
   printf("leu o disc. \n");
 
   /* Send UA frame to transmitter*/
-  unsigned char frame[FRAME_SIZE];
+  unsigned char frame[MAX_BUF];
   frame[FLAG_INDEX] = FLAG;
   frame[A_INDEX] = A;
   frame[C_INDEX] = C_DISC;
@@ -457,8 +459,6 @@ int readFrame(int operation, char *data, int *counter)
   while (STOP == FALSE && max_buf != MAX_BUF)
   {                                      /* loop for input */
     resR = read(fileDescriptor, buf, 1); /* returns after 1 char has been input */
-    max_buf++;
-    //printf("Max_buf = %d\n", max_buf);
 
     if (operation == 0)
     {
@@ -467,6 +467,10 @@ int readFrame(int operation, char *data, int *counter)
     else
     {
       state = dataStateMachine(state, buf, data, counter);
+    }
+
+    if (state != StartData && state != Start){
+      max_buf++;
     }
   }
 
@@ -488,8 +492,8 @@ int readFrame(int operation, char *data, int *counter)
 
 void writeFrame(unsigned char frame[])
 {
-  int resW = write(fileDescriptor, frame, FRAME_SIZE);
-  printf("Sent frame with %x bytes.\n", resW);
+  int resW = write(fileDescriptor, frame, MAX_BUF);
+  printf("Sent frame with %x bytes: %s\n", resW, frame);
 }
 
 enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
@@ -614,8 +618,8 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
 
   case ARecievedData:
     printf("AReceive state c = %x \n", (C_I | (linkStruct.sequenceNumber << 6)));
-    printf("C_expected = %x", C_expected);
-    printf("buf = %x", *buf);
+    printf("C_expected = %x\n", C_expected);
+    printf("buf = %x\n", *buf);
     if (*buf == C_expected)
     {
       state++;
@@ -642,7 +646,7 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     break;
 
   case CRecievedData:
-    printf("cReceive state \n");
+    printf("Receive state: BBC - %x \n", *buf);
     if (*buf == BCC_expected)
     {
       state++;
@@ -658,7 +662,7 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     break;
 
   case BCCokData:
-    printf("bccok state \n");
+    printf("bccok state : Data - %x\n", *buf);
     if (*buf == FLAG)
     {
       STOP = TRUE;

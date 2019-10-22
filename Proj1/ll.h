@@ -10,14 +10,12 @@
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FALSE 0
 #define TRUE 1
-#define MAX_BUF 255
 
 /* Alarm information */
 #define MAX_RETURN 3
 #define TIMEOUT 3
 
 /* Frame information*/
-#define FRAME_SIZE 32
 #define FLAG 0x7E
 #define A 0x03
 
