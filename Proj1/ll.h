@@ -98,11 +98,11 @@ struct linkLayer linkStruct;
 
 /* Function prototypes */
 void setUP(int porta);
-int receiver();
-int transmitter();
+void receiver();
+void transmitter();
 int receiverClose();
 int transmitterClose();
-int readFrame(int operation, char *data, int *counter);
+int readFrame(int operation, unsigned char *data, int *counter);
 void writeFrame(unsigned char frame[]);
 int bcc2Calculator(unsigned char *buffer, int length);
 void byteStuffing(unsigned char *frame, int length);

@@ -50,7 +50,7 @@ void receiverApp();
 void transmitterApp();
 void writeDataPackage(unsigned char *package, int packCount, int packSize);
 void writeControlPackage(int type, off_t fileSize);
-unsigned char *parsePackage(unsigned char *buff, int packSize, int numbPack, int *packFinalSize);
+unsigned char *parsePackage(unsigned char *buff, int numbPack, int *packFinalSize);
 off_t parseStartPackage(unsigned char *buff);
 void checkEndPackage(unsigned char *buff);
 

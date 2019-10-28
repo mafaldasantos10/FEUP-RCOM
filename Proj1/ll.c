@@ -32,6 +32,7 @@ void alarmHandler()
     alarm(TIMEOUT);
 
     printf("Waiting for acknowledging frame...\n\n");
+    fflush(stdout);
     linkStruct.num_return++;
   }
   else
@@ -112,7 +113,7 @@ void setUP(int porta)
   printf("New termios structure set\n\n");
 }
 
-int receiver()
+void receiver()
 {
   int count_ignore = 0;
 
@@ -122,7 +123,7 @@ int receiver()
   BCC_expected = BCC_S;
 
   printf("Waiting for SET frame...\n");
-  while (readFrame(0, "", &count_ignore) != 0)
+  while (readFrame(0, (unsigned char *)"", &count_ignore) != 0)
   {
   }
 
@@ -138,7 +139,7 @@ int receiver()
   writeFrame(frame);
 }
 
-int transmitter()
+void transmitter()
 {
   // Initializes variable before creating alarm
   linkStruct.num_return = 0;
@@ -171,7 +172,7 @@ int transmitter()
       BCC_expected = BCC_UA;
 
       printf("Waiting for UA frame...\n\n");
-      readFrame(0, "", &count_ignore);
+      readFrame(0, (unsigned char *)"", &count_ignore);
 
       // Resets alarm flag
       flag = 0;
@@ -203,12 +204,12 @@ int llwrite(int fd, char *buffer, int length)
       linkStruct.frame[C_INDEX] = C_I | (linkStruct.sequenceNumber << 6);
       linkStruct.frame[BCC_INDEX] = A ^ linkStruct.frame[C_INDEX];
 
-      for (unsigned int i = 0; i < length; i++)
+      for (int i = 0; i < length; i++)
       {
         linkStruct.frame[DATA_INDEX + i] = buffer[i];
       }
 
-      linkStruct.frame[BCC2_INDEX + length - 1] = bcc2Calculator(buffer, length);
+      linkStruct.frame[BCC2_INDEX + length - 1] = bcc2Calculator((unsigned char *)buffer, length);
       linkStruct.frame[FLAG2_I_INDEX + length - 1] = FLAG;
 
       byteStuffing(linkStruct.frame, FLAG2_I_INDEX + length);
@@ -225,7 +226,7 @@ int llwrite(int fd, char *buffer, int length)
       flag = 0;
 
       printf("Waiting for acknowledging frame...\n");
-      if (readFrame(0, "", &count_ignore) != 0)
+      if (readFrame(0, (unsigned char *)"", &count_ignore) != 0)
       {
         if (REJ == TRUE)
         {
@@ -259,7 +260,7 @@ int llread(int fd, char *buffer)
   C_expected = C_I | (linkStruct.sequenceNumber << 6);
   BCC_expected = A ^ C_expected;
 
-  if (readFrame(1, buffer, &length) == 0)
+  if (readFrame(1, (unsigned char *)buffer, &length) == 0)
   {
     if (SET_ON == TRUE) // Received SET frame
     {
@@ -341,7 +342,7 @@ int receiverClose()
   BCC_expected = BCC_DISC;
 
   printf("Waiting for DISC frame...\n");
-  while (readFrame(0, "", &count_ignore) != 0)
+  while (readFrame(0, (unsigned char *)"", &count_ignore) != 0)
   {
   }
 
@@ -362,7 +363,7 @@ int receiverClose()
   BCC_expected = BCC_UA;
 
   printf("Waiting for UA frame...\n\n");
-  if (readFrame(0, "", &count_ignore) == 0)
+  if (readFrame(0, (unsigned char *)"", &count_ignore) == 0)
   {
     printf("Received UA frame successfully! Closing program...\n\n");
     return 0;
@@ -405,7 +406,7 @@ int transmitterClose()
       BCC_expected = BCC_DISC;
 
       printf("Waiting for DISC frame...\n");
-      readFrame(0, "", &count_ignore);
+      readFrame(0, (unsigned char *)"", &count_ignore);
 
       // Resets alarm flag
       flag = 0;
@@ -435,7 +436,7 @@ int bcc2Calculator(unsigned char *buffer, int length)
 {
   int bcc2 = buffer[0];
 
-  for (unsigned int i = 1; i < length; i++)
+  for (int i = 1; i < length; i++)
   {
     bcc2 ^= buffer[i];
   }
@@ -479,15 +480,17 @@ void byteStuffing(unsigned char *frame, int length)
   memcpy(frame, newFrame, j);
 }
 
-int readFrame(int operation, char *data, int *counter)
+int readFrame(int operation, unsigned char *data, int *counter)
 {
-  int resR;
   int max_buf = 0; // Amount of data that can be received before leaving the while loop
   unsigned char buf[MAX_BUF];
 
-  // State machine initialization
+  // State machines initialization
   enum startSt state;
   state = Start;
+
+  enum dataSt stateData;
+  stateData = StartData;
 
   // Resets the reading data byte counter
   *counter = 0;
@@ -499,22 +502,24 @@ int readFrame(int operation, char *data, int *counter)
   FRAME_RECEIVED = FALSE;
 
   while (STOP == FALSE && max_buf != MAX_BUF)
-  {                                                 /* loop for input */
-    resR = read(linkStruct.fileDescriptor, buf, 1); /* returns after 1 char has been input */
+  {                                          /* loop for input */
+    read(linkStruct.fileDescriptor, buf, 1); /* returns after 1 char has been input */
 
     if (operation == 0) // Non Data Frames
     {
       state = startUpStateMachine(state, buf);
+
+      // Only starts counting when it's not trash
+      if (state != Start)
+        max_buf++;
     }
     else // Data Frames
     {
-      state = dataStateMachine(state, buf, data, counter);
-    }
+      stateData = dataStateMachine(stateData, buf, data, counter);
 
-    // Only starts counting when it's not trash
-    if (state != StartData && state != Start)
-    {
-      max_buf++;
+      // Only starts counting when it's not trash
+      if (stateData != StartData)
+        max_buf++;
     }
   }
 
@@ -530,7 +535,7 @@ int readFrame(int operation, char *data, int *counter)
 
 void writeFrame(unsigned char frame[])
 {
-  int resW = write(linkStruct.fileDescriptor, frame, MAX_BUF);
+  write(linkStruct.fileDescriptor, frame, MAX_BUF);
 }
 
 enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
