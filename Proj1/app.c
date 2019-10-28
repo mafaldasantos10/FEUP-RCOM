@@ -1,7 +1,7 @@
 #include "app.h"
 
-volatile int MAX_INF = (MAX_BUF - 11) / 2; // Max data bytes that can be sent in each package
-volatile int END = FALSE;                  // TRUE if end control package was received, FALSE otherwise
+volatile int MAX_INF = (MAX_BUF - 7) / 2 - 4; // Max data bytes that can be sent in each package
+volatile int END = FALSE;                     // TRUE if end control package was received, FALSE otherwise
 
 int main(int argc, char **argv)
 {
@@ -74,7 +74,7 @@ void transmitterApp()
             counter++;
         }
 
-        printf("Sending package %d of %d\n", i+1, numberPackages);
+        printf("Sending package %d of %d\n", i + 1, numberPackages);
         writeDataPackage(package, i, packSize);
     }
 
@@ -151,6 +151,8 @@ void receiverApp()
     while (begin == FALSE)
     {
         unsigned char buff[MAX_INF + 4];
+
+        printf("Waiting for start control package...\n");
         packSize = llread(appLayer.fileDescriptor, buff);
         if (packSize < 0)
         {
@@ -175,6 +177,7 @@ void receiverApp()
         unsigned char buff[MAX_INF + 4];
         int packDataSize = 0; // Read data size
 
+        printf("Waiting for package %d\n", numbPack+1);
         packSize = llread(appLayer.fileDescriptor, buff);
 
         if (packSize < 0)
@@ -266,6 +269,8 @@ unsigned char *parsePackage(unsigned char *buff, int packSize, int numbPack, int
     {
         checkEndPackage(buff);
         END = TRUE;
+        printf("Received end control package!\n\n");
+
         return "";
     }
     else
@@ -344,7 +349,7 @@ void checkEndPackage(unsigned char *buff)
 
 void createFile(unsigned char *data, off_t *sizeFile)
 {
-    memcpy(appLayer.fileName, "pinguim2.gif", 14);
+    memcpy(appLayer.fileName, "pinguim2.gif", 14); // TODO: DELETE IN THE END
     FILE *file = fopen(appLayer.fileName, "wb+");
 
     // Writes file bytes read

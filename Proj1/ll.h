@@ -1,7 +1,6 @@
 #ifndef LINK_LAYER_H
 #define LINK_LAYER_H
 
-
 #include "ll_app.h"
 
 #define BAUDRATE B38400
@@ -83,13 +82,14 @@ enum dataSt
 
 struct linkLayer
 {
-    char port[20];                  /*Dispositivo /dev/ttySx, x = 0, 1*/
-    struct termios oldtio;          /*Original port settings*/
-    int status;                     /*TRANSMITTER | RECEIVER*/
-    unsigned int sequenceNumber;    /*Número de sequência da trama: 0, 1*/
-    unsigned char frame[MAX_BUF];   /*Trama*/
+    char port[20];                /*Dispositivo /dev/ttySx, x = 0, 1*/
+    struct termios oldtio;        /*Original port settings*/
+    int status;                   /*TRANSMITTER | RECEIVER*/
+    int fileDescriptor;           /*Serial port file descriptor*/
+    int num_return;               /*Number of times the alarm was activated*/
+    unsigned int sequenceNumber;  /*Número de sequência da trama: 0, 1*/
+    unsigned char frame[MAX_BUF]; /*Trama*/
 };
-
 struct linkLayer linkStruct;
 
 /* Function prototypes */
@@ -98,7 +98,7 @@ int receiver();
 int transmitter();
 int receiverClose();
 int transmitterClose();
-int readFrame(int operation, char *data, int * counter);
+int readFrame(int operation, char *data, int *counter);
 void writeFrame(unsigned char frame[]);
 int bcc2Calculator(unsigned char *buffer, int length);
 void byteStuffing(unsigned char *frame, int length);
