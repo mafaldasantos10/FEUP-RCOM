@@ -1,11 +1,11 @@
 #include "ll.h"
-#include "ll_app.h"
 
 // Global variables
 volatile int STOP = FALSE;           // Used to exit the while loop in readFrame function
 volatile int SET_ON = FALSE;         // TRUE if a SET frame was read when it's not expected to, FALSE otherwise
 volatile int FRAME_RECEIVED = FALSE; // TRUE if the rigth frame was received, FALSE otherwise
 volatile int DUPLICATE = FALSE;      // TRUE if a duplicate frame was received, FALSE otherwise
+volatile int REJ = FALSE;            // TRUE if a negative acknowledging frame was received, FALSE otherwise
 
 unsigned char A_expected;   // Expected A frame parameter to be compared in state machines
 unsigned char C_expected;   // Expected C frame parameter to be compared in state machines
@@ -19,7 +19,6 @@ void alarmHandler()
 
   if (FRAME_RECEIVED == TRUE)
   {
-    flag = 1;
     linkStruct.num_return = 0;
     return;
   }
@@ -27,8 +26,9 @@ void alarmHandler()
   if (linkStruct.num_return < MAX_RETURN)
   {
     /* Sends frame again */
-    printf("Sending frame again...\n");
+    printf("Sending frame again... Remaining attempts: %d\n", MAX_RETURN - linkStruct.num_return - 1);
     writeFrame(linkStruct.frame);
+
     alarm(TIMEOUT);
 
     printf("Waiting for acknowledging frame...\n\n");
@@ -222,11 +222,22 @@ int llwrite(int fd, char *buffer, int length)
       C_expected = C_RR | (((linkStruct.sequenceNumber + 1) % 2) << 7);
       BCC_expected = A ^ C_expected;
 
-      printf("Waiting for acknowledging frame... n_seq%x\n\n", linkStruct.sequenceNumber);
-      if (readFrame(0, "", &count_ignore) != 0){
-        printf("Received REJ frame...\n\n");
-        sleep(2);
+      flag = 0;
+
+      printf("Waiting for acknowledging frame...\n");
+      if (readFrame(0, "", &count_ignore) != 0)
+      {
+        if (REJ == TRUE)
+        {
+          flag = 1;
+          printf("Received REJ frame!\n");
+        }
+        else
+        {
+          printf("Received wrong frame!\n");
+        }
       }
+      printf("\n");
     }
   }
 
@@ -248,7 +259,6 @@ int llread(int fd, char *buffer)
   C_expected = C_I | (linkStruct.sequenceNumber << 6);
   BCC_expected = A ^ C_expected;
 
-  //printf("Waiting for data frame... n_seq = %x\n", linkStruct.sequenceNumber);
   if (readFrame(1, buffer, &length) == 0)
   {
     if (SET_ON == TRUE) // Received SET frame
@@ -294,7 +304,7 @@ int llread(int fd, char *buffer)
     frame[FLAG2_INDEX] = FLAG;
 
     length = -1;
-    printf("Sending negative acknowledging frame... %x\n\n", frame[C_INDEX]);
+    printf("Sending negative acknowledging frame...\n\n");
   }
 
   writeFrame(frame);
@@ -416,7 +426,7 @@ int transmitterClose()
   printf("Sending UA frame...\n\n");
   writeFrame(frame);
 
-  sleep(1); //ensures the frame was read by the receiver before changing serial port settings
+  sleep(1); // Ensures the frame was read by the receiver before changing serial port settings
 
   return 0;
 }
@@ -484,6 +494,7 @@ int readFrame(int operation, char *data, int *counter)
 
   STOP = FALSE;
   SET_ON = FALSE;
+  REJ = FALSE;
   DUPLICATE = FALSE;
   FRAME_RECEIVED = FALSE;
 
@@ -507,22 +518,12 @@ int readFrame(int operation, char *data, int *counter)
     }
   }
 
-  //  TODO: CHECK THIS!!!
-  if (FRAME_RECEIVED == TRUE)
+  if (SET_ON == TRUE || DUPLICATE == TRUE || FRAME_RECEIVED == TRUE)
   {
-    flag = 0;
-    return 0;
-  }
-  if (SET_ON == TRUE || DUPLICATE == TRUE)
-  {
-    flag = 0;
-
     return 0;
   }
   else
   {
-    flag = 0;
-    //printf("bla bla\n");
     return 1;
   }
 }
@@ -548,7 +549,6 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case FlagRecieved:
-   //printf("FlagRec %x\n", *buf);
     if (*buf == A_expected)
     {
       state++;
@@ -565,7 +565,6 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case ARecieved:
-    //printf("AREC %x expected = %x REJ = %x\n", *buf, C_expected, (C_REJ | (((linkStruct.sequenceNumber + 1) % 2) << 7)));
     if (*buf == C_expected)
     {
       state++;
@@ -577,7 +576,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     else if (*buf == (C_REJ | (((linkStruct.sequenceNumber + 1) % 2) << 7)))
     {
       STOP = TRUE;
-      //flag = 1;
+      REJ = TRUE;
     }
     else
     {
@@ -586,7 +585,6 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case CRecieved:
-  //printf("CRec %x\n", *buf);
     if (*buf == BCC_expected)
     {
       state++;
@@ -602,7 +600,6 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case BCCok:
- // printf("BCCok %x\n", *buf);
     if (*buf == FLAG)
     {
       STOP = TRUE;
@@ -640,7 +637,8 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     }
     else if (*buf == FLAG)
     {
-      STOP = TRUE;
+      // STOP = TRUE;
+      break;
     }
     else
     {

@@ -2,6 +2,10 @@
 #define LINK_LAYER_H
 
 #include "ll_app.h"
+#include <signal.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
 
 #define BAUDRATE B38400
 #define _POSIX_SOURCE 1 /* POSIX compliant source */

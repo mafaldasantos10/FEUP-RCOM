@@ -177,7 +177,7 @@ void receiverApp()
         unsigned char buff[MAX_INF + 4];
         int packDataSize = 0; // Read data size
 
-        printf("Waiting for package %d\n", numbPack+1);
+        printf("Waiting for package %d\n", numbPack + 1);
         packSize = llread(appLayer.fileDescriptor, buff);
 
         if (packSize < 0)
@@ -364,7 +364,7 @@ unsigned char *readFile(struct stat *data)
 
     if ((file = fopen(((const char *)appLayer.fileName), "rb")) == NULL)
     {
-        perror("Error while opening the file");
+        perror("Error while opening the file\n");
         exit(1);
     }
 

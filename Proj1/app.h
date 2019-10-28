@@ -2,6 +2,7 @@
 #define APP_LAYER_H
 
 #include "ll_app.h"
+#include <sys/types.h>
 
 /* Data Package */
 #define CONT_DATA 1
