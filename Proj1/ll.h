@@ -4,8 +4,6 @@
 
 #include "ll_app.h"
 
-#define BIT(n) (0x01 << (n))
-
 #define BAUDRATE B38400
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 
@@ -34,14 +32,12 @@
 #define FLAG2_I_INDEX 6
 
 /* SET frame*/
-#define A_S 0X03
 #define C_S 0X03
-#define BCC_S (A_S ^ C_S)
+#define BCC_S (A ^ C_S)
 
 /* UA frame*/
-#define A_UA 0X03
 #define C_UA 0X07
-#define BCC_UA (A_UA ^ C_UA)
+#define BCC_UA (A ^ C_UA)
 
 /* I frame*/
 #define C_I 0X00 // BIT(6) to change N(s)
@@ -87,11 +83,11 @@ enum dataSt
 
 struct linkLayer
 {
-    char port[20]; /*Dispositivo /dev/ttySx, x = 0, 1*/
-    struct termios oldtio;
-    int status;     /* TRANSMITTER | RECEIVER */
-    unsigned int sequenceNumber;  /*Número de sequência da trama: 0, 1*/
-    unsigned char frame[MAX_BUF]; /*Trama*/
+    char port[20];                  /*Dispositivo /dev/ttySx, x = 0, 1*/
+    struct termios oldtio;          /*Original port settings*/
+    int status;                     /*TRANSMITTER | RECEIVER*/
+    unsigned int sequenceNumber;    /*Número de sequência da trama: 0, 1*/
+    unsigned char frame[MAX_BUF];   /*Trama*/
 };
 
 struct linkLayer linkStruct;
@@ -104,7 +100,7 @@ int receiverClose();
 int transmitterClose();
 int readFrame(int operation, char *data, int * counter);
 void writeFrame(unsigned char frame[]);
-int bcc2Calculator(unsigned char *buffer, int lenght);
+int bcc2Calculator(unsigned char *buffer, int length);
 void byteStuffing(unsigned char *frame, int length);
 enum startSt startUpStateMachine(enum startSt state, unsigned char *buf);
 enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned char *data, int *counter);

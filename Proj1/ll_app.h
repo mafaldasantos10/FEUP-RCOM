@@ -18,7 +18,6 @@
 #define RECEIVER 1
 
 #define MAX_BUF 1024
-#define MAX_INF (MAX_BUF - 11)/2
 
 /* Function prototypes */
 int llopen(int porta, int channel);

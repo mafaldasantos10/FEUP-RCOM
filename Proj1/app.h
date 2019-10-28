@@ -29,19 +29,28 @@ struct applicationLayer
 {
     int fileDescriptor; /*Descritor correspondente à porta série*/
     int status;         /*TRANSMITTER | RECEIVER*/
-    char* fileName;
+    char fileName[MAX_BUF];     /*File name*/
 };
 struct applicationLayer appLayer;
 
+struct startPackage
+{
+    off_t fileSize;
+    int fileSizeLength;
+    int fileNameLength;
+};
+struct startPackage startPack;
+
 /* Function prototypes */
 void checkArguments(int argc, char **argv);
-unsigned char *readFile(off_t *fileSize);
+unsigned char *readFile(struct stat* data);
 void createFile(unsigned char *data, off_t *sizeFile);
 void receiverApp();
 void transmitterApp();
 void writeDataPackage(unsigned char *package, int packCount, int packSize);
 void writeControlPackage(int type, off_t fileSize);
-int parsePackage(unsigned char *buff, int packSize, int numbPack, unsigned char *package, int *packFinalSize);
+unsigned char* parsePackage(unsigned char *buff, int packSize, int numbPack, int *packFinalSize);
 off_t parseStartPackage(unsigned char *buff);
+void checkEndPackage(unsigned char* buff);
 
 #endif /* APP_LAYER_H */

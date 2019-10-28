@@ -1,17 +1,18 @@
 #include "ll.h"
 #include "ll_app.h"
 
-//Global variables
-volatile int STOP = FALSE;
-volatile int SET_ON = FALSE;
-volatile int FRAME_RECEIVED = FALSE;
-volatile int DUPLICATE = FALSE;
-volatile int fileDescriptor = 0;
-volatile int num_return = 1;
-unsigned char A_expected;
-unsigned char C_expected;
-unsigned char BCC_expected;
-int flag = 1;
+// Global variables
+volatile int STOP = FALSE;           // Used to exit the while loop in readFrame function
+volatile int SET_ON = FALSE;         // TRUE if a SET frame was read when it's not expected to, FALSE otherwise
+volatile int FRAME_RECEIVED = FALSE; // TRUE if the rigth frame was received, FALSE otherwise
+volatile int DUPLICATE = FALSE;      // TRUE if a duplicate frame was received, FALSE otherwise
+
+volatile int fileDescriptor = 0; // Serial port file descriptor
+volatile int num_return = 1;     // Number of times the alarm was activated
+unsigned char A_expected;        // Expected A frame parameter to be compared in state machines
+unsigned char C_expected;        // Expected C frame parameter to be compared in state machines
+unsigned char BCC_expected;      // Expected BCC frame parameter to be compared in state machines
+int flag = 1;                    // When set allows the transmiter to send a frame again
 
 /* Handling alarm interruption */
 void alarmHandler()
@@ -27,11 +28,12 @@ void alarmHandler()
 
   if (num_return < MAX_RETURN)
   {
-    /* Send SET frame again */
-    printf("OUTRA VEZ ENVIDADO \n");
+    /* Sends frame again */
+    printf("Sending frame again...\n");
     writeFrame(linkStruct.frame);
-
     alarm(TIMEOUT);
+
+    printf("Waiting for acknowledging frame...\n\n");
     num_return++;
   }
   else
@@ -114,13 +116,14 @@ void setUP(int porta)
 
 int receiver()
 {
-  printf("Entrei no receiver\n");
   int count_ignore = 0;
+
   /* Receive SET frame from transmitter*/
-  A_expected = A_S;
+  A_expected = A;
   C_expected = C_S;
   BCC_expected = BCC_S;
 
+  printf("Waiting for SET frame...\n");
   while (readFrame(0, "", &count_ignore) != 0)
   {
   }
@@ -128,20 +131,21 @@ int receiver()
   /* Send UA frame to transmitter*/
   unsigned char frame[MAX_BUF];
   frame[FLAG_INDEX] = FLAG;
-  frame[A_INDEX] = A_UA;
+  frame[A_INDEX] = A;
   frame[C_INDEX] = C_UA;
   frame[BCC_INDEX] = BCC_UA;
   frame[FLAG2_INDEX] = FLAG;
 
+  printf("Sending UA frame...\n\n");
   writeFrame(frame);
-  printf("Sai no receiver\n");
 }
 
 int transmitter()
 {
-  printf("Entrei no transmitter\n");
+  // Creates alarm signal
   (void)signal(SIGALRM, alarmHandler);
 
+  // While UA frame is not received, when an alarm signal occurs another SET frame is sent
   while (FRAME_RECEIVED == FALSE)
   {
     if (flag == 1)
@@ -150,31 +154,35 @@ int transmitter()
 
       /* Send SET frame to receiver */
       linkStruct.frame[FLAG_INDEX] = FLAG;
-      linkStruct.frame[A_INDEX] = A_S;
+      linkStruct.frame[A_INDEX] = A;
       linkStruct.frame[C_INDEX] = C_S;
       linkStruct.frame[BCC_INDEX] = BCC_S;
       linkStruct.frame[FLAG2_INDEX] = FLAG;
+
+      printf("Sending SET frame...\n");
       writeFrame(linkStruct.frame);
 
       alarm(TIMEOUT);
-      printf("num_ret = %x\n", num_return);
 
       /* Receive UA frame from receiver */
-      A_expected = A_UA;
+      A_expected = A;
       C_expected = C_UA;
       BCC_expected = BCC_UA;
 
+      printf("Waiting for UA frame...\n\n");
       readFrame(0, "", &count_ignore);
+
+      // Resets alarm flag
       flag = 0;
     }
   }
+
+  // Deactivates alarm
   alarm(0);
-  printf("Sai no transmitter\n");
 }
 
 int llwrite(int fd, char *buffer, int length)
 {
-  printf("Entrei no llwrite\n");
   FRAME_RECEIVED = FALSE;
   fileDescriptor = fd;
   flag = 1;
@@ -183,10 +191,7 @@ int llwrite(int fd, char *buffer, int length)
   {
     if (flag == 1)
     {
-      printf("Entrei na flag\n");
       int count_ignore = 0;
-
-      int what = 0;
 
       // Writes data frame to receiver
       linkStruct.frame[FLAG_INDEX] = FLAG;
@@ -203,10 +208,7 @@ int llwrite(int fd, char *buffer, int length)
       linkStruct.frame[FLAG2_I_INDEX + length - 1] = FLAG;
 
       byteStuffing(linkStruct.frame, FLAG2_I_INDEX + length);
-      printf("c frame = %x\n", linkStruct.frame[C_INDEX]);
-      printf("bcc frame = %x\n", linkStruct.frame[BCC_INDEX]);
-      printf("\nsequenceNumber = %x\n\n", linkStruct.sequenceNumber);
-      printf("SIZE FRAME = %d\n", FLAG2_I_INDEX + length + 3);
+
       writeFrame(linkStruct.frame);
 
       alarm(TIMEOUT);
@@ -215,23 +217,19 @@ int llwrite(int fd, char *buffer, int length)
       A_expected = A;
       C_expected = C_RR | (((linkStruct.sequenceNumber + 1) % 2) << 7);
       BCC_expected = A ^ C_expected;
-      printf("A %x\n", A_expected);
-      printf("C %x\n", C_expected);
-      printf("BCC %x\n", BCC_expected);
-      what = readFrame(0, "", &count_ignore);
-      printf("What? %x\n", what);
+
+      printf("Waiting for acknowledging frame...\n\n");
+      readFrame(0, "", &count_ignore);
     }
   }
 
   linkStruct.sequenceNumber = (linkStruct.sequenceNumber + 1) % 2;
-  printf("Sai no llwrite\n");
 
   return length;
 }
 
 int llread(int fd, char *buffer)
 {
-  printf("Entrei no llread\n");
   fileDescriptor = fd;
   int length = 0;
   // Reads transmitter's data frame
@@ -239,13 +237,14 @@ int llread(int fd, char *buffer)
   C_expected = C_I | (linkStruct.sequenceNumber << 6);
   BCC_expected = A ^ C_expected;
   unsigned char frame[MAX_BUF];
+  printf("Waiting for data frame...\n");
   if (readFrame(1, buffer, &length) == 0)
   {
     if (SET_ON == TRUE)
     {
       /* Send UA frame to transmitter*/
       frame[FLAG_INDEX] = FLAG;
-      frame[A_INDEX] = A_UA;
+      frame[A_INDEX] = A;
       frame[C_INDEX] = C_UA;
       frame[BCC_INDEX] = BCC_UA;
       frame[FLAG2_INDEX] = FLAG;
@@ -255,7 +254,6 @@ int llread(int fd, char *buffer)
     {
       if (DUPLICATE == TRUE)
       {
-        printf("Foudn dup\n");
         length = -1;
       }
       else
@@ -264,9 +262,9 @@ int llread(int fd, char *buffer)
       }
       // Writes acknowledging frame to transmitter
       frame[FLAG_INDEX] = FLAG;
-      frame[A_INDEX] = A_UA;
+      frame[A_INDEX] = A;
       frame[C_INDEX] = C_RR | (linkStruct.sequenceNumber << 7);
-      frame[BCC_INDEX] = A_UA ^ frame[C_INDEX];
+      frame[BCC_INDEX] = A ^ frame[C_INDEX];
       frame[FLAG2_INDEX] = FLAG;
     }
   }
@@ -274,19 +272,23 @@ int llread(int fd, char *buffer)
   {
     // Writes rejected acknowledging frame to transmitter
     frame[FLAG_INDEX] = FLAG;
-    frame[A_INDEX] = A_UA;
+    frame[A_INDEX] = A;
     frame[C_INDEX] = C_REJ | (linkStruct.sequenceNumber << 7);
-    frame[BCC_INDEX] = A_UA ^ frame[C_INDEX];
+    frame[BCC_INDEX] = A ^ frame[C_INDEX];
     frame[FLAG2_INDEX] = FLAG;
 
     length = -1;
   }
-  printf("\nsequenceNumber = %x\n\n", linkStruct.sequenceNumber);
-  printf("%x C \n", frame[C_INDEX]);
-  printf("%x BCC\n", frame[BCC_INDEX]);
+  if (length == -1)
+  {
+    printf("Sending negative acknowledging frame...\n\n");
+  }
+  else
+  {
+    printf("Sending positive acknowledging frame...\n\n");
+  }
   writeFrame(frame);
 
-  printf("Sai no llread\n");
   return length;
 }
 
@@ -310,17 +312,16 @@ int llclose(int fd)
 
 int receiverClose()
 {
-  printf("close recie. \n");
   int count_ignore = 0;
   /* Receive SET frame from transmitter*/
   A_expected = A;
   C_expected = C_DISC;
   BCC_expected = BCC_DISC;
 
+  printf("Waiting for DISC frame...\n");
   while (readFrame(0, "", &count_ignore) != 0)
   {
   }
-  printf("leu o disc. \n");
 
   /* Send UA frame to transmitter*/
   unsigned char frame[MAX_BUF];
@@ -330,14 +331,15 @@ int receiverClose()
   frame[BCC_INDEX] = BCC_DISC;
   frame[FLAG2_INDEX] = FLAG;
 
+  printf("Sending DISC frame...\n");
   writeFrame(frame);
-  printf("write ua\n");
 
   /* Receive SET frame from transmitter*/
   A_expected = A;
   C_expected = C_UA;
   BCC_expected = BCC_UA;
 
+  printf("Waiting for UA frame...\n\n");
   if (readFrame(0, "", &count_ignore) == 0)
   {
     return 0;
@@ -346,13 +348,10 @@ int receiverClose()
   {
     return -1;
   }
-  printf("leu o ua. \n");
-  printf("Sai no receiver close\n");
 }
 
 int transmitterClose()
 {
-  printf("close transm. \n");
   FRAME_RECEIVED = FALSE;
   flag = 1;
 
@@ -368,18 +367,18 @@ int transmitterClose()
       linkStruct.frame[C_INDEX] = C_DISC;
       linkStruct.frame[BCC_INDEX] = BCC_DISC;
       linkStruct.frame[FLAG2_INDEX] = FLAG;
+
+      printf("Sending DISC frame...\n");
       writeFrame(linkStruct.frame);
-      printf("first disc sent. \n");
       alarm(TIMEOUT);
-      printf("num_ret = %x\n", num_return);
 
       /* Receive UA frame from receiver */
       A_expected = A;
       C_expected = C_DISC;
       BCC_expected = BCC_DISC;
 
+      printf("Waiting for DISC frame...\n");
       readFrame(0, "", &count_ignore);
-      printf("read disc. \n");
       flag = 0;
     }
   }
@@ -387,21 +386,22 @@ int transmitterClose()
 
   unsigned char frame[MAX_BUF];
   frame[FLAG_INDEX] = FLAG;
-  frame[A_INDEX] = A_UA;
+  frame[A_INDEX] = A;
   frame[C_INDEX] = C_UA;
   frame[BCC_INDEX] = BCC_UA;
   frame[FLAG2_INDEX] = FLAG;
-  printf("last ua sent. \n");
+
+  printf("Sending UA frame...\n\n");
   writeFrame(frame);
-  sleep(0.5);
+  sleep(1);
 
   return 1;
 }
 
-int bcc2Calculator(unsigned char *buffer, int lenght)
+int bcc2Calculator(unsigned char *buffer, int length)
 {
   int bcc2 = buffer[0];
-  for (unsigned int i = 1; i < lenght; i++)
+  for (unsigned int i = 1; i < length; i++)
   {
     bcc2 ^= buffer[i];
   }
@@ -445,12 +445,14 @@ void byteStuffing(unsigned char *frame, int length)
 int readFrame(int operation, char *data, int *counter)
 {
   int resR;
-  int max_buf = 0;
+  int max_buf = 0; // Amount of data that can be received before leaving the while loop
   unsigned char buf[MAX_BUF];
 
-  //state machine initialization
+  // State machine initialization
   enum startSt state;
   state = Start;
+
+  // Resets the reading data byte counter
   *counter = 0;
 
   STOP = FALSE;
@@ -462,41 +464,35 @@ int readFrame(int operation, char *data, int *counter)
   {                                      /* loop for input */
     resR = read(fileDescriptor, buf, 1); /* returns after 1 char has been input */
 
-    if (operation == 0)
+    if (operation == 0) // Non Data Frames
     {
       state = startUpStateMachine(state, buf);
     }
-    else
+    else // Data Frames
     {
       state = dataStateMachine(state, buf, data, counter);
     }
 
+    // Only starts counting when it's not trash
     if (state != StartData && state != Start)
     {
       max_buf++;
     }
   }
 
-  printf("SET = %x", SET_ON);
-  printf("DUPLICATE = %x", DUPLICATE);
-  printf("FRAME_RECEIVED = %x", FRAME_RECEIVED);
-
+  //  TODO: CHECK THIS!!!
   if (FRAME_RECEIVED == TRUE)
   {
-    printf("Here 0 \n");
     flag = 0;
     return 0;
   }
-
   if (SET_ON == TRUE || DUPLICATE == TRUE)
   {
-    printf("Here 0 \n");
     flag = 0;
     return 0;
   }
   else
   {
-    printf("Here 1 \n");
     flag = 0;
     return 1;
   }
@@ -505,7 +501,6 @@ int readFrame(int operation, char *data, int *counter)
 void writeFrame(unsigned char frame[])
 {
   int resW = write(fileDescriptor, frame, MAX_BUF);
-  printf("Sent frame with %x bytes: %s\n", resW, frame);
 }
 
 enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
@@ -514,7 +509,6 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
   {
 
   case Start:
-    //printf("Started\n");
     if (*buf == FLAG)
     {
       state++;
@@ -526,7 +520,6 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case FlagRecieved:
-    printf("FlagRecieved\n");
     if (*buf == A_expected)
     {
       state++;
@@ -542,8 +535,6 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case ARecieved:
-    printf("\nARecieved buf = %x\n", *buf);
-    printf("Cexpected = %x\n", C_expected);
     if (*buf == C_expected)
     {
       state++;
@@ -554,9 +545,7 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     }
     else if (*buf == (C_REJ | (((linkStruct.sequenceNumber + 1) % 2) << 7)))
     {
-      printf("ENTREI REJ\n");
       STOP = TRUE;
-      // flag = 1;
     }
     else
     {
@@ -565,7 +554,6 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case CRecieved:
-    printf("CRecieved\n");
     if (*buf == BCC_expected)
     {
       state++;
@@ -581,12 +569,10 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     break;
 
   case BCCok:
-    printf("BCCok\n");
     if (*buf == FLAG)
     {
       STOP = TRUE;
       FRAME_RECEIVED = TRUE;
-      printf("Received valid frame.\n");
     }
     else
     {
@@ -601,9 +587,7 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
 {
   switch (state)
   {
-
   case StartData:
-    //printf("startDta state: %x \n", *buf);
     if (*buf == FLAG)
     {
       state++;
@@ -615,7 +599,6 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     break;
 
   case FlagRecievedData:
-    printf("flagReceive state \n");
     if (*buf == A_expected)
     {
       state++;
@@ -631,9 +614,6 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     break;
 
   case ARecievedData:
-    printf("AReceive state c = %x \n", (C_I | (((linkStruct.sequenceNumber + 1) % 2) << 6)));
-    printf("C_expected = %x\n", C_expected);
-    printf("buf = %x\n", *buf);
     if (*buf == C_expected)
     {
       state++;
@@ -649,7 +629,6 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     }
     else if (*buf == (C_I | (((linkStruct.sequenceNumber + 1) % 2) << 6)))
     {
-      printf("ENtreu dupdup with c =\n");
       DUPLICATE = TRUE;
       STOP = TRUE;
     }
@@ -660,7 +639,6 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     break;
 
   case CRecievedData:
-    printf("Receive state: BBC - %x \n", *buf);
     if (*buf == BCC_expected)
     {
       state++;
@@ -676,7 +654,6 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     break;
 
   case BCCokData:
-    printf("bccok state : Data - %x\n", *buf);
     if (*buf == FLAG)
     {
       STOP = TRUE;
@@ -690,15 +667,12 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     break;
 
   case Data:
-    printf("data state num %d com valor %x \n", *counter, *buf);
-
     if (*buf == FLAG)
     {
       STOP = TRUE;
     }
     else if (*buf == ESC)
     {
-      //printf("data recebe esc");
       state++;
     }
     else if (*buf == bcc2Calculator(data, *counter))
@@ -714,18 +688,14 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     break;
 
   case DestuffingData:
-    printf("destuffing \n");
     if (*buf == FLAG_STUFFING)
     {
-      //printf("== flag stuffing \n");
       if (FLAG == bcc2Calculator(data, *counter))
       {
-        //printf("para o bcc2 \n");
         state = BCC2ok;
       }
       else
       {
-        //printf("= flag para a data");
         data[*counter] = FLAG;
         (*counter)++;
         state = Data;
@@ -733,15 +703,12 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     }
     else if (*buf == ESC_STUFFING)
     {
-      //printf("== esc stuffing \n");
       if (ESC == bcc2Calculator(data, *counter))
       {
-        //printf("para o bcc2 \n");
         state = BCC2ok;
       }
       else
       {
-        //printf("= esc para a data");
         data[*counter] = ESC;
         (*counter)++;
         state = Data;
@@ -760,7 +727,6 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     {
       STOP = TRUE;
       FRAME_RECEIVED = TRUE;
-      printf("Received valid Data frame %s.\n", data);
     }
     else
     {
@@ -771,6 +737,7 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
       if (*buf == ESC)
       {
         state = DestuffingData;
+        break;
       }
 
       if (*buf != bcc2Calculator(data, *counter))
@@ -782,5 +749,6 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     }
     break;
   }
+
   return state;
 }

@@ -1,6 +1,7 @@
 #include "app.h"
 
-volatile int END = FALSE;
+volatile int MAX_INF = (MAX_BUF - 11) / 2; // Max data bytes that can be sent in each package
+volatile int END = FALSE;                  // TRUE if end control package was received, FALSE otherwise
 
 int main(int argc, char **argv)
 {
@@ -9,7 +10,6 @@ int main(int argc, char **argv)
     int port = (int)argv[1][9] - 48;
     appLayer.fileDescriptor = llopen(port, appLayer.status);
 
-    printf("MAX INF = %d\n", MAX_INF);
     if (appLayer.fileDescriptor < 0)
     {
         printf("There was an error starting the tranference in llopen.\n");
@@ -33,40 +33,61 @@ int main(int argc, char **argv)
 
 void transmitterApp()
 {
-    off_t fileSize;
-    unsigned char *fileData = readFile(&fileSize);
-    int j = 0;
+    // Reads file bytes and saves its size
+    struct stat data;
+    unsigned char *fileData = readFile(&data);
+    off_t fileSize = data.st_size;
 
-    int numberPackages = fileSize / MAX_INF; //TODO: tratar em casos de resto n zero
-    printf("number packages = %d\n", numberPackages);
+    // Gets number of packages to send
+    int numberPackages = fileSize / MAX_INF;
+    int remainder = fileSize % MAX_INF;
+    if (remainder != 0)
+    {
+        numberPackages++;
+    }
 
+    // Writes start control package
+    printf("Sending start control package\n");
     writeControlPackage(CONT_START, fileSize);
 
-    printf("Depois start\n");
+    // Writes data packages
+    int packSize = MAX_INF; // Package size
+    int j = 0;              // File data index
 
     for (int i = 0; i < numberPackages; i++)
     {
-        unsigned char *package;
+        // Changes last package size if it's not the max value allowed
+        if (i == numberPackages - 1)
+        {
+            if (remainder != 0)
+            {
+                packSize = remainder;
+            }
+        }
+
+        unsigned char package[packSize + 4];
         int counter = 0;
-        while (counter != MAX_INF)
+        while (counter != packSize)
         {
             package[counter] = fileData[j];
             j++;
             counter++;
         }
 
-        writeDataPackage(package, i, MAX_INF);
-        printf("Depois data\n");
+        printf("Sending package %d of %d\n", i+1, numberPackages);
+        writeDataPackage(package, i, packSize);
     }
 
+    // Write end control package
+    printf("Sending end control package\n");
     writeControlPackage(CONT_END, fileSize);
-    printf("Depois end\n");
-    printf("number packages = %d\n", numberPackages);
 }
 
 void writeControlPackage(int type, off_t fileSize)
 {
     unsigned char controlPackage[MAX_INF + 4];
+
+    // Type of package
     controlPackage[CONT_INDEX] = type;
 
     // File Size TLV
@@ -76,7 +97,7 @@ void writeControlPackage(int type, off_t fileSize)
     int i;
     for (i = 0; i < controlPackage[FILE_SIZE_LENGTH_INDEX]; i++)
     {
-        controlPackage[FILE_SIZE_VALUE_INDEX + i] = (fileSize >> (i * 8)) & 0xFF; // writes first the least significant bits
+        controlPackage[FILE_SIZE_VALUE_INDEX + i] = (fileSize >> (i * 8)) & 0xFF; // writes the least significant bits first
     }
 
     // File Name TLV
@@ -90,20 +111,20 @@ void writeControlPackage(int type, off_t fileSize)
     }
 
     // Sends control package
-    while (llwrite(appLayer.fileDescriptor, controlPackage, MAX_INF + 4) == -1)
+    while (llwrite(appLayer.fileDescriptor, controlPackage, FILE_NAME_VALUE_INDEX + i + j) == -1)
     {
     }
 }
 
 void writeDataPackage(unsigned char *package, int packCount, int packSize)
 {
-    unsigned char dataPackage[MAX_INF + 4];
+    unsigned char dataPackage[packSize + 4];
+
+    // Package Header
     dataPackage[CONT_INDEX] = CONT_DATA;
     dataPackage[N_SEQ_INDEX] = packCount % 255;
     dataPackage[L2_INDEX] = packSize / 255;
     dataPackage[L1_INDEX] = packSize % 255;
-
-    printf("N_Sequence = %x\n", dataPackage[N_SEQ_INDEX]);
 
     // Data
     for (unsigned int i = 0; i < packSize; i++)
@@ -112,33 +133,27 @@ void writeDataPackage(unsigned char *package, int packCount, int packSize)
     }
 
     // Sends data package
-    while (llwrite(appLayer.fileDescriptor, dataPackage, MAX_INF + 4) == -1)
+    while (llwrite(appLayer.fileDescriptor, dataPackage, packSize + 4) == -1)
     {
-    }
-    for (int k = 0; k < MAX_INF + 4; k++)
-    {
-        printf("DataPackage = %d\n", dataPackage[k]);
     }
 }
 
 void receiverApp()
 {
-    int packSize, numbPack = 0;
-    off_t fileSize = 0;
-    int begin = FALSE;
+    int packSize;       // Read package size
+    int numbPack = 0;   // Received packages counter
+    off_t fileSize = 0; // Received file size
+    int begin = FALSE;  // TRUE if begin control package received, FALSE otherwise
 
-    unsigned char *fileData = malloc(0);
-    off_t sizeCounter = 0;
+    unsigned char *fileData = malloc(0); // Total file data read
+    off_t sizeCounter = 0;               // Size of total file data read
 
     while (begin == FALSE)
     {
         unsigned char buff[MAX_INF + 4];
         packSize = llread(appLayer.fileDescriptor, buff);
-        printf("buff %s \n", buff);
-
         if (packSize < 0)
         {
-            printf("Error reading package or received wrong package...\n");
             continue;
         }
 
@@ -158,32 +173,23 @@ void receiverApp()
     while (END == FALSE)
     {
         unsigned char buff[MAX_INF + 4];
-        unsigned char package[MAX_INF + 4];
-        int packFinalSize = 0;
+        int packDataSize = 0; // Read data size
+
         packSize = llread(appLayer.fileDescriptor, buff);
-        printf("buff %s \n", buff);
 
         if (packSize < 0)
         {
-            printf("Error reading package or received wrong package...\n");
             continue;
         }
 
-        if (parsePackage(buff, packSize, numbPack, package, &packFinalSize) < 0)
-        {
-            printf("Whatever package\n");
-            exit(-1);
-        }
+        unsigned char *package = parsePackage(buff, packSize, numbPack, &packDataSize);
+
+        // Adds package to final data array
+        sizeCounter += packDataSize;
+        fileData = (unsigned char *)realloc(fileData, sizeCounter);
+        memcpy(fileData + sizeCounter - packDataSize, package, packDataSize);
 
         numbPack++;
-        printf("Adding package to data %x de %lx\n", packFinalSize, fileSize);
-        // Add package to final data
-        sizeCounter += packFinalSize;
-        printf("Before realloc - size counter: %lx\n", sizeCounter);
-        fileData = (unsigned char *)realloc(fileData, sizeCounter);
-        printf("Before memcpy\n");
-        memcpy(fileData + sizeCounter - packFinalSize, package, packFinalSize);
-        printf("After memcpy\n");
     }
     if (fileSize != 0)
     {
@@ -193,7 +199,7 @@ void receiverApp()
 
 off_t parseStartPackage(unsigned char *buff)
 {
-    off_t fileSize = 0;
+    startPack.fileSize = 0; // Received file size
 
     if (buff[CONT_INDEX] != CONT_START)
     {
@@ -201,27 +207,28 @@ off_t parseStartPackage(unsigned char *buff)
     }
 
     // Parses file length
-    int fileSizeLength = buff[FILE_SIZE_LENGTH_INDEX];
+    startPack.fileSizeLength = buff[FILE_SIZE_LENGTH_INDEX];
 
     if (buff[FILE_SIZE_TYPE_INDEX] == FILE_SIZE_TYPE)
     {
-        for (unsigned int i = 0; i < fileSizeLength; i++)
+        for (unsigned int i = 0; i < startPack.fileSizeLength; i++)
         {
-            fileSize |= buff[FILE_SIZE_VALUE_INDEX + i] << (i * 8); // gets first the least significant bits
+            startPack.fileSize |= buff[FILE_SIZE_VALUE_INDEX + i] << (i * 8); // gets first the least significant bits
         }
     }
     else
     {
-        printf("File size is not defined...\n");
         return -1;
     }
 
     // Parses file name
-    if (buff[fileSizeLength + FILE_NAME_TYPE_INDEX] == 1)
+    startPack.fileNameLength = buff[startPack.fileSizeLength + FILE_NAME_LENGTH_INDEX];
+
+    if (buff[startPack.fileSizeLength + FILE_NAME_TYPE_INDEX] == 1)
     {
-        for (unsigned int i = 0; i < buff[fileSizeLength + FILE_NAME_LENGTH_INDEX]; i++)
+        for (unsigned int i = 0; i < startPack.fileNameLength; i++)
         {
-            appLayer.fileName[i] = buff[fileSizeLength + FILE_NAME_VALUE_INDEX + i];
+            appLayer.fileName[i] = buff[startPack.fileSizeLength + FILE_NAME_VALUE_INDEX + i];
         }
     }
     else
@@ -230,57 +237,125 @@ off_t parseStartPackage(unsigned char *buff)
         return -1;
     }
 
-    return fileSize;
+    return startPack.fileSize;
 }
 
-int parsePackage(unsigned char *buff, int packSize, int numbPack, unsigned char *package, int *packFinalSize)
+unsigned char *parsePackage(unsigned char *buff, int packSize, int numbPack, int *packDataSize)
 {
-    printf("CONT WHaT = %x\n", buff[CONT_INDEX]);
+    unsigned char *package;
+
     if (buff[CONT_INDEX] == CONT_DATA)
     {
-        printf("N_Sequence = %x\n", buff[N_SEQ_INDEX]);
-        if (buff[N_SEQ_INDEX] != numbPack % 0x0FF)
+        if (buff[N_SEQ_INDEX] != numbPack % 255)
         {
             printf("Wrong sequence number! A package was possibly lost.\n");
-            return -1;
+            exit(-1);
         }
 
-        *packFinalSize = 256 * buff[L2_INDEX] + buff[L1_INDEX];
-        package = (unsigned char *)malloc(*packFinalSize);
+        *packDataSize = 255 * buff[L2_INDEX] + buff[L1_INDEX];
+        package = (unsigned char *)malloc(*packDataSize);
 
-        for (unsigned int i = 0; i < *packFinalSize; i++)
+        for (unsigned int i = 0; i < *packDataSize; i++)
         {
             package[i] = buff[PACKAGE_INDEX + i];
         }
-        return 0;
+
+        return package;
     }
     else if (buff[CONT_INDEX] == CONT_END)
     {
-        // checkEndPackage(buff);
-        printf("ENNNND!\n");
+        checkEndPackage(buff);
         END = TRUE;
-        return 0;
+        return "";
     }
     else
     {
         printf("Wrong control field!\n");
-        return -1;
+        exit(-1);
+    }
+}
+
+void checkEndPackage(unsigned char *buff)
+{
+    /* Checks File Size */
+    off_t fileSize = 0; // Received file size
+
+    // Checks file size length
+    if (startPack.fileSizeLength != buff[FILE_SIZE_LENGTH_INDEX])
+    {
+        printf("Wrong file size length.\n");
+        exit(-1);
+    }
+
+    // Checks file size type
+    if (buff[FILE_SIZE_TYPE_INDEX] == FILE_SIZE_TYPE)
+    {
+        for (unsigned int i = 0; i < startPack.fileSizeLength; i++)
+        {
+            fileSize |= buff[FILE_SIZE_VALUE_INDEX + i] << (i * 8);
+        }
+
+        // Checks file size
+        if (startPack.fileSize != fileSize)
+        {
+            printf("Wrong file size.\n");
+            exit(-1);
+        }
+    }
+    else
+    {
+        printf("File size is not defined...\n");
+        exit(-1);
+    }
+
+    /* Checks File Name */
+    char *fileName;     // Received file name
+    int fileNameLength; // Received file name length
+
+    // Checks file name length
+    if (startPack.fileNameLength != buff[startPack.fileSizeLength + FILE_NAME_LENGTH_INDEX])
+    {
+        printf("Wrong file name length.\n");
+        exit(-1);
+    }
+
+    // Checks file name type
+    if (buff[startPack.fileSizeLength + FILE_NAME_TYPE_INDEX] == FILE_NAME_TYPE)
+    {
+        fileName = (unsigned char *)malloc(buff[startPack.fileSizeLength + FILE_NAME_LENGTH_INDEX]);
+        for (unsigned int i = 0; i < buff[startPack.fileSizeLength + FILE_NAME_LENGTH_INDEX]; i++)
+        {
+            fileName[i] = buff[startPack.fileSizeLength + FILE_NAME_VALUE_INDEX + i];
+        }
+
+        // Checks file name
+        if (strcmp(appLayer.fileName, fileName) != 0)
+        {
+            printf("Wrong file name.\n");
+            exit(-1);
+        }
+    }
+    else
+    {
+        printf("File name is not defined...\n");
+        exit(-1);
     }
 }
 
 void createFile(unsigned char *data, off_t *sizeFile)
 {
-    appLayer.fileName = "pinguim2.gif";
+    memcpy(appLayer.fileName, "pinguim2.gif", 14);
     FILE *file = fopen(appLayer.fileName, "wb+");
+
+    // Writes file bytes read
     fwrite((void *)data, 1, *sizeFile, file);
-    printf("New file %s created\n", appLayer.fileName);
+    printf("*New file %s created*\n\n", appLayer.fileName);
     fclose(file);
 }
 
-unsigned char *readFile(off_t *fileSize)
+unsigned char *readFile(struct stat *data)
 {
     FILE *file;
-    struct stat data;
 
     if ((file = fopen(((const char *)appLayer.fileName), "rb")) == NULL)
     {
@@ -288,36 +363,42 @@ unsigned char *readFile(off_t *fileSize)
         exit(1);
     }
 
-    //get the file metadata
-    stat(appLayer.fileName, &data);
+    // Gets the file metadata
+    stat(appLayer.fileName, data);
 
-    //gets file size in bytes
-    *fileSize = data.st_size;
+    // Gets file size in bytes
+    off_t fileSize = data->st_size;
 
-    unsigned char *fileData = (unsigned char *)malloc(*fileSize);
+    unsigned char *fileData = (unsigned char *)malloc(fileSize);
 
-    fread(fileData, sizeof(unsigned char), *fileSize, file);
+    // Reads file bytes
+    fread(fileData, sizeof(unsigned char), fileSize, file);
     if (ferror(file))
     {
-        perror("error writting to file\n");
+        perror("Error writting to file\n");
     }
     fclose(file);
+
     return fileData;
 }
 
 void checkArguments(int argc, char **argv)
 {
-    if ((argc < 4) ||
+    if ((argc < 3) ||
         ((strcmp("/dev/ttyS0", argv[1]) != 0) &&
          (strcmp("/dev/ttyS1", argv[1]) != 0) &&
          (strcmp("/dev/ttyS2", argv[1]) != 0) &&
          (strcmp("/dev/ttyS3", argv[1]) != 0)) ||
         ((strcmp("0", argv[2]) != 0) &&
-         (strcmp("1", argv[2]) != 0)))
+         (strcmp("1", argv[2]) != 0)) ||
+        ((strcmp("0", argv[2]) == 0) && argc != 4) || ((strcmp("1", argv[2]) == 0) && argc != 3))
     {
-        printf("Usage:\tnserial SerialPort State FileName\n\tex: nserial /dev/ttyS1 0 pinguim.gif\n\tState: 0 - Transmitter\t1 - Receiver\n");
+        printf("Usage:\tnserial SerialPort State [FileName]\n\tex: nserial /dev/ttyS1 0 pinguim.gif\n\t    nserial /dev/ttyS1 1\n\tState: 0-Transmitter\t1-Receiver\n");
         exit(1);
     }
     appLayer.status = atoi(argv[2]);
-    appLayer.fileName = argv[3];
+    if (appLayer.status == 0)
+    {
+        memcpy(appLayer.fileName, argv[3], strlen(argv[3]));
+    }
 }
