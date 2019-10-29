@@ -560,7 +560,6 @@ enum startSt startUpStateMachine(enum startSt state, unsigned char *buf)
     }
     else if (*buf == FLAG)
     {
-      //STOP = TRUE; //TODOOOO
       break;
     }
     else
@@ -642,7 +641,6 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
     }
     else if (*buf == FLAG)
     {
-      // STOP = TRUE;
       break;
     }
     else

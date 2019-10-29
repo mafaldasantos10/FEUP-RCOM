@@ -111,7 +111,7 @@ void writeControlPackage(int type, off_t fileSize)
     }
 
     // Sends control package
-    while (llwrite(appLayer.fileDescriptor, (char*)controlPackage, FILE_NAME_VALUE_INDEX + i + j) == -1)
+    while (llwrite(appLayer.fileDescriptor, (char *)controlPackage, FILE_NAME_VALUE_INDEX + i + j) == -1)
     {
     }
 }
@@ -133,7 +133,7 @@ void writeDataPackage(unsigned char *package, int packCount, int packSize)
     }
 
     // Sends data package
-    while (llwrite(appLayer.fileDescriptor, (char*)dataPackage, packSize + 4) == -1)
+    while (llwrite(appLayer.fileDescriptor, (char *)dataPackage, packSize + 4) == -1)
     {
     }
 }
@@ -153,7 +153,7 @@ void receiverApp()
         unsigned char buff[MAX_INF + 4];
 
         printf("Waiting for start control package...\n");
-        packSize = llread(appLayer.fileDescriptor, (char*)buff);
+        packSize = llread(appLayer.fileDescriptor, (char *)buff);
         if (packSize < 0)
         {
             continue;
@@ -178,7 +178,7 @@ void receiverApp()
         int packDataSize = 0; // Read data size
 
         printf("Waiting for package %d\n", numbPack + 1);
-        packSize = llread(appLayer.fileDescriptor, (char*)buff);
+        packSize = llread(appLayer.fileDescriptor, (char *)buff);
 
         if (packSize < 0)
         {
@@ -210,10 +210,10 @@ off_t parseStartPackage(unsigned char *buff)
     }
 
     // Parses file length
-    startPack.fileSizeLength = buff[FILE_SIZE_LENGTH_INDEX];
-
     if (buff[FILE_SIZE_TYPE_INDEX] == FILE_SIZE_TYPE)
     {
+        startPack.fileSizeLength = buff[FILE_SIZE_LENGTH_INDEX];
+
         for (int i = 0; i < startPack.fileSizeLength; i++)
         {
             startPack.fileSize |= buff[FILE_SIZE_VALUE_INDEX + i] << (i * 8); // gets first the least significant bits
@@ -225,10 +225,10 @@ off_t parseStartPackage(unsigned char *buff)
     }
 
     // Parses file name
-    startPack.fileNameLength = buff[startPack.fileSizeLength + FILE_NAME_LENGTH_INDEX];
-
     if (buff[startPack.fileSizeLength + FILE_NAME_TYPE_INDEX] == 1)
     {
+        startPack.fileNameLength = buff[startPack.fileSizeLength + FILE_NAME_LENGTH_INDEX];
+
         for (int i = 0; i < startPack.fileNameLength; i++)
         {
             appLayer.fileName[i] = buff[startPack.fileSizeLength + FILE_NAME_VALUE_INDEX + i];
@@ -271,7 +271,7 @@ unsigned char *parsePackage(unsigned char *buff, int numbPack, int *packDataSize
         END = TRUE;
         printf("Received end control package!\n\n");
 
-        return (unsigned char*)"";
+        return (unsigned char *)"";
     }
     else
     {
@@ -327,9 +327,14 @@ void checkEndPackage(unsigned char *buff)
     if (buff[startPack.fileSizeLength + FILE_NAME_TYPE_INDEX] == FILE_NAME_TYPE)
     {
         fileName = (char *)malloc(buff[startPack.fileSizeLength + FILE_NAME_LENGTH_INDEX]);
-        for (unsigned int i = 0; i < buff[startPack.fileSizeLength + FILE_NAME_LENGTH_INDEX]; i++)
+        for (int i = 0; i < buff[startPack.fileSizeLength + FILE_NAME_LENGTH_INDEX]; i++)
         {
             fileName[i] = buff[startPack.fileSizeLength + FILE_NAME_VALUE_INDEX + i];
+
+            if (i == buff[startPack.fileSizeLength + FILE_NAME_LENGTH_INDEX] - 1)
+            {
+                fileName[i + 1] = '\0';
+            }
         }
 
         // Checks file name
@@ -362,7 +367,7 @@ unsigned char *readFile(struct stat *data)
 
     if ((file = fopen(((const char *)appLayer.fileName), "rb")) == NULL)
     {
-        perror("Error while opening the file\n");
+        perror("Error while opening the file");
         exit(1);
     }
 
