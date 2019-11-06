@@ -1,11 +1,19 @@
 #include "app.h"
+#include <time.h>
 
 volatile int MAX_INF = (MAX_BUF - 7) / 2 - 4; // Max data bytes that can be sent in each package
 volatile int END = FALSE;                     // TRUE if end control package was received, FALSE otherwise
 
 int main(int argc, char **argv)
 {
+    // Seed to create random numbers
+    srand(time(NULL));
+
     checkArguments(argc, argv);
+
+    // Clock beggining
+    struct timespec start, end;
+    clock_gettime(CLOCK_REALTIME, &start);
 
     int port = (int)argv[1][9] - 48;
     appLayer.fileDescriptor = llopen(port, appLayer.status);
@@ -27,6 +35,12 @@ int main(int argc, char **argv)
     }
 
     llclose(appLayer.fileDescriptor);
+
+    // Clock end
+    clock_gettime(CLOCK_REALTIME, &end);
+    double time_taken = (end.tv_sec - start.tv_sec) +
+                        (end.tv_nsec - start.tv_nsec) / 1E9;
+    printf("It took %f seconds for the program to execute\n", time_taken);
 
     return 0;
 }

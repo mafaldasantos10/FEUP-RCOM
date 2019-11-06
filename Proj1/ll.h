@@ -5,7 +5,6 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <termios.h>
-#include <unistd.h>
 
 #define BAUDRATE B38400
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
@@ -105,8 +104,10 @@ int transmitterClose();
 int readFrame(int operation, unsigned char *data, int *counter);
 void writeFrame(unsigned char frame[]);
 int bcc2Calculator(unsigned char *buffer, int length);
-void byteStuffing(unsigned char *frame, int length);
+int byteStuffing(unsigned char *frame, int length);
 enum startSt startUpStateMachine(enum startSt state, unsigned char *buf);
 enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned char *data, int *counter);
+void generatesErrorData(unsigned char* errorFrame, int frameSize);
+void generatesErrorHeader(unsigned char* errorFrame, int frameSize);
 
 #endif /* LINK_LAYER_H */

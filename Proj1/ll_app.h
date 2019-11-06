@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #define FALSE 0
 #define TRUE 1
@@ -12,7 +13,7 @@
 #define TRANSMITTER 0
 #define RECEIVER 1
 
-#define MAX_BUF 1024
+#define MAX_BUF 215
 
 /* Function prototypes */
 int llopen(int porta, int channel);

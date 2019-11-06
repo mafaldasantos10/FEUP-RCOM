@@ -12,6 +12,8 @@ unsigned char C_expected;   // Expected C frame parameter to be compared in stat
 unsigned char BCC_expected; // Expected BCC frame parameter to be compared in state machines
 int flag = 1;               // When set allows the transmiter to send a frame again
 
+int probability_error = 10;
+
 /* Handling alarm interruption */
 void alarmHandler()
 {
@@ -188,6 +190,7 @@ int llwrite(int fd, char *buffer, int length)
   FRAME_RECEIVED = FALSE;
   flag = 1;
   linkStruct.num_return = 0;
+  unsigned char *frameWithErr = malloc(FLAG2_I_INDEX + length);
 
   linkStruct.fileDescriptor = fd;
 
@@ -212,9 +215,13 @@ int llwrite(int fd, char *buffer, int length)
       linkStruct.frame[BCC2_INDEX + length - 1] = bcc2Calculator((unsigned char *)buffer, length);
       linkStruct.frame[FLAG2_I_INDEX + length - 1] = FLAG;
 
-      byteStuffing(linkStruct.frame, FLAG2_I_INDEX + length);
+      int lenlen = byteStuffing(linkStruct.frame, FLAG2_I_INDEX + length);
 
-      writeFrame(linkStruct.frame);
+      /* Error Generators */
+      generatesErrorHeader(frameWithErr, lenlen);
+      generatesErrorData(frameWithErr, lenlen);
+
+      writeFrame(frameWithErr);
 
       alarm(TIMEOUT);
 
@@ -427,7 +434,7 @@ int transmitterClose()
   printf("Sending UA frame...\n\n");
   writeFrame(frame);
 
-  sleep(1); // Ensures the frame was read by the receiver before changing serial port settings
+  //sleep(1); // Ensures the frame was read by the receiver before changing serial port settings
 
   return 0;
 }
@@ -444,7 +451,7 @@ int bcc2Calculator(unsigned char *buffer, int length)
   return bcc2;
 }
 
-void byteStuffing(unsigned char *frame, int length)
+int byteStuffing(unsigned char *frame, int length)
 {
   unsigned char newFrame[MAX_BUF];
   unsigned int j = 0; // Current index of new frame
@@ -478,6 +485,7 @@ void byteStuffing(unsigned char *frame, int length)
 
   // Returns frame with byte stuffing implemented
   memcpy(frame, newFrame, j);
+  return j;
 }
 
 int readFrame(int operation, unsigned char *data, int *counter)
@@ -783,4 +791,30 @@ enum dataSt dataStateMachine(enum dataSt state, unsigned char *buf, unsigned cha
   }
 
   return state;
+}
+
+void generatesErrorHeader(unsigned char *errorFrame, int frameSize)
+{
+  memcpy(errorFrame, linkStruct.frame, frameSize);
+
+  int prob_extraction = (rand() % 100) + 1;
+  if (prob_extraction <= probability_error)
+  {
+    int frameIndex = (rand() % 3) + 1;
+    unsigned char randomChar = (unsigned char)(rand() % 128);
+    errorFrame[frameIndex] = randomChar;
+    printf("\nError generator: frame's header was modified!\n");
+  }
+}
+
+void generatesErrorData(unsigned char *errorFrame, int frameSize)
+{
+  int prob_extraction = (rand() % 100) + 1;
+  if (prob_extraction <= probability_error)
+  {
+    int frameIndex = (rand() % (frameSize - 5)) + 4;
+    unsigned char randomChar = (unsigned char)(rand() % 128);
+    errorFrame[frameIndex] = randomChar;
+    printf("\nError generator: frame's data was modified!: %x ind = %x\n", errorFrame[frameIndex], frameIndex);
+  }
 }
